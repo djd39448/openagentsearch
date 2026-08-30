@@ -694,6 +694,9 @@ def run_follow(fetcher: Fetcher, state: State, wait: int) -> None:
                     state.ensure_room(rid)
             last_full_sweep = now
         state.flush()
+        # Keep meta.json fresh (with the public-only caveat) while following, so no other
+        # process is tempted to hand-write it. Wall-clock is never fabricated (now_ts=None).
+        state.write_meta(fetcher, None)
 
 
 # --------------------------------------------------------------------------- #
