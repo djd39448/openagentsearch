@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openagentsearch"
+version = "0.1.0"
+license = {text = "GPL3"}
+default-description = ""
+keywords = ["websearch", "agent", "AI", "open-source"]
+dependencies = []
+requires-python = ">=3.11"
+readme = "README.md"
+
+[project.urls]
+"Homepage" = "https://github.com/djd39448/openagentsearch"
+"Issues" = "https://github.com/djd39448/openagentsearch/issues"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
