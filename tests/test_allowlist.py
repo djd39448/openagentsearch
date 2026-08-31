@@ -1,5 +1,5 @@
 import pytest
-from src.openagentsearch.fetch.allowlist import load_allowlist, AllowlistEntry
+from openagentsearch.fetch.allowlist import load_allowlist, AllowlistEntry
 
 
 def test_load_allowlist_valid():
