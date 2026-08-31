@@ -88,6 +88,9 @@ ROOM_REF_RE = re.compile(r"(?:/r/|room:|#)([a-z0-9][a-z0-9._-]{2,63})")
 # Header lines start with '#'; the topic is UNTRUSTED and not stored.
 ROOMS_LINE_RE = re.compile(r"^/r/([a-z0-9][a-z0-9._-]{0,63})\s+seq\s+(\d+)\b")
 
+# /r/events lines are "<~server> created <room_id>" — extract the created room id.
+CREATED_RE = re.compile(r"\bcreated\s+([a-z0-9][a-z0-9._-]{2,63})")
+
 log = logging.getLogger("crawl")
 
 
@@ -359,8 +362,12 @@ class State:
         meta = {
             "generated_by": USER_AGENT,
             "caveat": (
-                "PUBLIC ROOMS ONLY. Private (p-) rooms are unlistable by design and "
-                "are not represented. This index is complete for public rooms only."
+                "PUBLIC ROOMS ONLY. Private (p-) rooms are unlistable by design. Public rooms are "
+                "enumerated from /rooms (newest window), reference discovery in message bodies, and "
+                "the /r/events creation log going forward. /r/events is NOT retroactively pageable "
+                "(since=N returns the newest lines after N), so inactive, unreferenced rooms created "
+                "before this crawl began may be missing. Best-effort complete for public rooms seen "
+                "from first run onward."
             ),
             "public_rooms_indexed": len(self.rooms),
             "requests_made_this_run": fetcher.count,
@@ -467,39 +474,47 @@ def _parse_ts(val: Any) -> Optional[int]:
 # Crawl operations
 # --------------------------------------------------------------------------- #
 
-def poll_events(fetcher: Fetcher, state: State, wait: int) -> int:
-    """Fetch a batch from /r/events, register new room ids, advance cursor.
+def poll_events(fetcher: Fetcher, state: State) -> int:
+    """Read new lines from the /r/events creation log, register new room ids, advance cursor.
 
-    Returns the number of newly discovered rooms this call.
+    /r/events is an ordinary room the server writes to, one line per new PUBLIC room, of the
+    form "<~server> created <room_id>". Fetched with ?format=json&since=<seq> like any room.
+
+    IMPORTANT — verified against the live service: `?since=N` returns the NEWEST 50 lines with
+    seq > N (since=100 and since=40000 both return the same newest window). The creation log is
+    therefore NOT retroactively pageable — the historical backlog created before the crawler
+    started, if inactive and unreferenced, cannot be enumerated here. This poll captures new
+    creations going FORWARD; combined with /rooms + reference discovery the index is complete for
+    rooms seen from first run onward. (`wait=` is also avoided — /r/events?wait= reliably 503s.)
     """
-    params = {"wait": wait}
+    params: dict = {"format": "json"}
     if state.events_cursor is not None:
         params["since"] = state.events_cursor
     data = fetcher.get_json("/r/events", params=params)
     if data is None:
         return 0
-
-    entries = _extract_events(data)
+    messages = _extract_messages(data)
     new_rooms = 0
-    for entry in entries:
-        if not isinstance(entry, dict):
+    max_seq = _as_int(state.events_cursor)
+    for msg in messages:
+        if not isinstance(msg, dict):
             continue
-        rid = entry.get("room") or entry.get("id") or entry.get("room_id")
-        ts = _parse_ts(entry.get("ts"))
-        cursor = entry.get("cursor") or entry.get("seq") or entry.get("offset")
-        if _is_public_room_id(rid):
-            if rid not in state.rooms:
-                new_rooms += 1
-                log.info("discovered room from events: %s", rid)
-            state.ensure_room(rid, first_seen_ts=ts)
-        if cursor is not None:
-            state.events_cursor = str(cursor)
-    # Fall back to a top-level cursor if the server provides one.
-    top_cursor = None
-    if isinstance(data, dict):
-        top_cursor = data.get("cursor") or data.get("next") or data.get("next_since")
-    if top_cursor is not None:
-        state.events_cursor = str(top_cursor)
+        seq = _as_int(msg.get("seq"))
+        ts = _parse_ts(msg.get("ts"))
+        text = msg.get("text")
+        if seq is not None:
+            max_seq = seq if max_seq is None else max(max_seq, seq)
+        if isinstance(text, str):
+            m = CREATED_RE.search(text)
+            if m and _is_public_room_id(m.group(1)):
+                rid = m.group(1)
+                if rid not in state.rooms:
+                    new_rooms += 1
+                state.ensure_room(rid, first_seen_ts=ts)
+    if max_seq is not None:
+        state.events_cursor = str(max_seq)
+    if new_rooms:
+        log.info("events: +%d new rooms (cursor %s)", new_rooms, state.events_cursor)
     return new_rooms
 
 
@@ -638,7 +653,7 @@ def run_sweep(fetcher: Fetcher, state: State, wait: int) -> None:
         log.warning("STOP file present; aborting sweep before start")
         return
 
-    poll_events(fetcher, state, wait=wait)
+    poll_events(fetcher, state)
     sweep_rooms_listing(fetcher, state)
     state.flush()
 
@@ -682,7 +697,7 @@ def run_follow(fetcher: Fetcher, state: State, wait: int) -> None:
             log.warning("request cap reached; exiting follow loop")
             break
 
-        poll_events(fetcher, state, wait=wait)
+        poll_events(fetcher, state)
         now = time.monotonic()
         if now - last_full_sweep >= full_sweep_interval:
             sweep_rooms_listing(fetcher, state)
