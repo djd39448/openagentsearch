@@ -22,7 +22,7 @@ def robots_allows(url: str, user_agent: str = "OpenAgentSearch-crawler/1.0") -> 
         True if the URL's domain is in the allowlist, False otherwise
     """
     parsed_url = urlparse(url)
-    return parsed_url.netloc in ALLOWLIST
+    return parsed_url.hostname in ALLOWLIST
 
 
 def is_allowed_by_policy(url: str) -> bool:
