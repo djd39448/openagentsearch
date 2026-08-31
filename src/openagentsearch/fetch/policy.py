@@ -21,6 +21,7 @@ def robots_allows(url: str, user_agent: str = "OpenAgentSearch-crawler/1.0") -> 
     Returns:
         True if the URL's domain is in the allowlist, False otherwise
     """
+    # Using urlparse to correctly extract hostname regardless of scheme or port
     parsed_url = urlparse(url)
     return parsed_url.hostname in ALLOWLIST
 
