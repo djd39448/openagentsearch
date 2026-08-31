@@ -10,6 +10,7 @@ default-description = ""
 keywords = ["websearch", "agent", "AI", "open-source"]
 dependencies = [
     "requests>=2.34.2",
+    "PyYAML>=6.0.1",
 ]
 requires-python = ">=3.12"
 readme = "README.md"
