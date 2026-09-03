@@ -75,21 +75,23 @@ EVENTS_WAIT_SECONDS = 10
 REQUEST_TIMEOUT = (10, EVENTS_WAIT_SECONDS + 20)
 
 # Strict validators. Public room ids are conservative slugs; "p-" is private and
-# must never be indexed even if it somehow appears in a body.
-ROOM_ID_RE = re.compile(r"\b([a-z0-9][a-z0-9._-]{0,63})\b")
+# must never be indexed even if it somehow appears in a body. Ids never end in a
+# separator: a trailing "." / "-" / "_" is sentence punctuation, and the server
+# answers 400 for it (79% of one crawl's requests were such junk before this rule).
+ROOM_ID_RE = re.compile(r"\b([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\b")
 DID_KEY_RE = re.compile(r"\bdid:key:z[1-9A-HJ-NP-Za-km-z]{20,120}\b")
 MAILBOX_RE = re.compile(r"\bmb-[a-z0-9][a-z0-9._-]{0,63}\b")
 
 # Tokens that look like room refs inside text are only accepted when explicitly
 # shaped like a room reference, to avoid harvesting ordinary words.
-ROOM_REF_RE = re.compile(r"(?:/r/|room:|#)([a-z0-9][a-z0-9._-]{2,63})")
+ROOM_REF_RE = re.compile(r"(?:/r/|room:|#)([a-z0-9][a-z0-9._-]{1,62}[a-z0-9])")
 
 # /rooms is a TEXT listing: "/r/<name>   seq <n>   <size>   <t> ago   · <topic>".
 # Header lines start with '#'; the topic is UNTRUSTED and not stored.
-ROOMS_LINE_RE = re.compile(r"^/r/([a-z0-9][a-z0-9._-]{0,63})\s+seq\s+(\d+)\b")
+ROOMS_LINE_RE = re.compile(r"^/r/([a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?)\s+seq\s+(\d+)\b")
 
 # /r/events lines are "<~server> created <room_id>" — extract the created room id.
-CREATED_RE = re.compile(r"\bcreated\s+([a-z0-9][a-z0-9._-]{2,63})")
+CREATED_RE = re.compile(r"\bcreated\s+([a-z0-9][a-z0-9._-]{1,62}[a-z0-9])")
 
 log = logging.getLogger("crawl")
 
@@ -398,7 +400,7 @@ def _is_public_room_id(rid: Any) -> bool:
         return False  # private by design; never index
     if len(rid) > 64:
         return False
-    return bool(re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", rid))
+    return bool(re.fullmatch(r"[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?", rid))
 
 
 def harvest_refs_from_text(text: Any) -> tuple[set[str], set[str]]:
