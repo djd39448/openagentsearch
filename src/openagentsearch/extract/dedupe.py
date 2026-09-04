@@ -1,28 +1,23 @@
 import hashlib
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from .store import ExtractStore
 
 
-class DedupingExtractStore:
-    """A wrapper around ExtractStore that deduplicates extracted documents by text hash."""
-    
-    def __init__(self, root: Path) -> None:
+class DedupingExtractStore(ExtractStore):
+    """An ExtractStore that deduplicates extracted documents by text hash.
+
+    This wrapper around ExtractStore ensures that only unique document contents 
+    (based on the text content's SHA256 hash) are stored. Duplicate documents
+    with identical text will not be written to disk and will return None.
+    """
+
+    def put(self, sha256: str, url: str, extracted: Dict[str, Any], extracted_at: float) -> Path | None:
         """
-        Initialize the DedupingExtractStore with a root directory.
-        
-        Args:
-            root: The root path where extracted documents and raw content are stored
-        """
-        self.root = root
-        self._extract_store = ExtractStore(root)
-    
-    def put(self, sha256: str, url: str, extracted: Dict[str, Any], extracted_at: float) -> Optional[Path]:
-        """
-        Store an extracted document, but only if it doesn't already exist by text content.
-        
+        Store an extracted document, deduplicating by text content.
+
         Args:
             sha256: The SHA256 hash of the raw HTML content
             url: The URL from which the content was fetched
@@ -30,26 +25,27 @@ class DedupingExtractStore:
             extracted_at: Timestamp when extraction occurred
             
         Returns:
-            Path to the stored JSON file, or None if deduplicated
+            Path to the stored JSON file or None if deduplicated 
         """
-        # Compute the text hash for deduplication
+        # Compute text hash - exactly as specified in the task
         text_hash = hashlib.sha256(extracted["text"].encode("utf-8")).hexdigest()
         
-        # Scan existing extracted files to check for duplicates
+        # Scan existing extracted files for matching text hash
         extracted_dir = self.root / "extracted"
         if extracted_dir.exists():
-            for file_path in extracted_dir.iterdir():
-                if file_path.is_file() and file_path.suffix == ".json":
-                    try:
-                        with file_path.open("r", encoding="utf-8") as f:
-                            existing_data = json.load(f)
+            for existing_file in extracted_dir.glob("*.json"):
+                try:
+                    # Read existing file and compute its text hash 
+                    with existing_file.open('r', encoding='utf-8') as f:
+                        existing_data = json.load(f)
                         existing_text_hash = hashlib.sha256(existing_data["text"].encode("utf-8")).hexdigest()
-                        if existing_text_hash == text_hash:
-                            # Duplicate found, don't store
-                            return None
-                    except (json.JSONDecodeError, KeyError):
-                        # If we can't read or parse the file, continue to next
-                        continue
+                        
+                    # If we find a matching text hash, do not store this one
+                    if existing_text_hash == text_hash:
+                        return None
+                except (json.JSONDecodeError, KeyError):
+                    # If there's an issue reading/analyzing the file, continue to next
+                    continue
         
-        # No duplicate found, proceed with storing
-        return self._extract_store.put(sha256, url, extracted, extracted_at)
+        # No duplicate found, delegate to parent class
+        return super().put(sha256, url, extracted, extracted_at)

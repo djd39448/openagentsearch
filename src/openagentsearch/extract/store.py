@@ -3,6 +3,7 @@ import hashlib
 from pathlib import Path
 from typing import Dict, Any
 
+
 class ExtractStore:
     """Store extracted documents with provenance verification."""
     
@@ -60,7 +61,7 @@ class ExtractStore:
         
         if not provenance_line:
             raise ValueError("No provenance")
-        
+            
         # Step 3: Verify URL matches
         if provenance_line.get("url") != url:
             raise ValueError("URL mismatch")
