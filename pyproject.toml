@@ -5,7 +5,9 @@ build-backend = "hatchling.build"
 [project]
 name = "openagentsearch"
 version = "0.1.0"
-requires-python = ">=3.11"
+license = {text = "MIT"}
+keywords = ["websearch", "agent", "AI", "open-source"]
+requires-python = ">=3.12"
 dependencies = [
     "requests>=2.34.2",
     "PyYAML>=6.0.1",
