@@ -310,6 +310,7 @@ class State:
                 log.warning("could not read cursor.json (%s); starting cursor fresh", exc)
         if os.path.exists(self.rooms_path):
             loaded = 0
+            dropped = 0
             with open(self.rooms_path, "r", encoding="utf-8") as fh:
                 for line in fh:
                     line = line.strip()
@@ -321,9 +322,15 @@ class State:
                         log.warning("skipping malformed rooms.jsonl line")
                         continue
                     rid = rec.get("id")
-                    if isinstance(rid, str) and rid:
+                    # Re-validate on resume: ids persisted by an older, looser validator
+                    # (e.g. "4979.") would otherwise be re-polled forever and 400 every time.
+                    if isinstance(rid, str) and rid and _is_public_room_id(rid):
                         self.rooms[rid] = rec
                         loaded += 1
+                    else:
+                        dropped += 1
+            if dropped:
+                log.warning("dropped %d invalid room ids from rooms.jsonl on resume", dropped)
             log.info("resumed: %d rooms, cursor=%s", loaded, self.events_cursor)
 
     def stop_requested(self) -> bool:
@@ -703,12 +710,19 @@ def run_follow(fetcher: Fetcher, state: State, wait: int) -> None:
         now = time.monotonic()
         if now - last_full_sweep >= full_sweep_interval:
             sweep_rooms_listing(fetcher, state)
+            harvested = 0
             for room_id in sorted(state.rooms.keys()):
                 if state.stop_requested() or fetcher.budget_exhausted():
                     break
                 newly = harvest_room(fetcher, state, room_id)
                 for rid in sorted(newly):
                     state.ensure_room(rid)
+                harvested += 1
+                # A full pass over thousands of rooms takes over an hour at a polite rate;
+                # checkpoint along the way so a crash never loses the whole pass.
+                if harvested % 100 == 0:
+                    state.flush()
+                    state.write_meta(fetcher, None)
             last_full_sweep = now
         state.flush()
         # Keep meta.json fresh (with the public-only caveat) while following, so no other

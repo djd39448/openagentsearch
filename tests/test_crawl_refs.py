@@ -43,3 +43,21 @@ def test_created_line_extracts_clean_id():
     m = crawl.CREATED_RE.search("<~server> created room-77.")
     assert m is not None
     assert m.group(1) == "room-77"
+
+
+def test_state_load_drops_invalid_ids_and_flush_rewrites_clean(tmp_path):
+    rooms = tmp_path / "rooms.jsonl"
+    rooms.write_text(
+        '{"id": "goodroom", "message_count_seen": 1}\n'
+        '{"id": "0643.", "message_count_seen": 0}\n'
+        '{"id": "p-secret", "message_count_seen": 0}\n'
+        '{"id": "", "message_count_seen": 0}\n',
+        encoding="utf-8",
+    )
+    state = crawl.State(str(tmp_path))
+    state.load()
+    assert set(state.rooms) == {"goodroom"}
+    state.flush()
+    lines = [l for l in rooms.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(lines) == 1
+    assert '"id": "goodroom"' in lines[0]
