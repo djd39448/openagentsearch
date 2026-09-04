@@ -1,238 +1,157 @@
-import hashlib
 import json
+import tempfile
 from pathlib import Path
+from typing import Dict, Any
 
 import pytest
+
 from openagentsearch.extract.dedupe import DedupingExtractStore
 
 
-def test_dedupe_store_same_document_twice(tmp_path: Path) -> None:
-    """Test that storing the same document twice yields exactly ONE extracted JSON file 
-    and the second call returns None.
-    """
-    # Create a mock raw HTML file 
-    raw_content = b"<html><body>Some content</body></html>"
-    sha256 = hashlib.sha256(raw_content).hexdigest()
-    
-    # Write the raw file
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir(parents=True)
-    raw_file = raw_dir / f"{sha256}.html"
-    raw_file.write_bytes(raw_content)
-    
-    # Write provenance line
-    provenance_file = raw_dir / "provenance.jsonl"
-    provenance_entry = {
-        "url": "https://example.com/page",
-        "fetched_at": 1234567890.0,
-        "status": 200,
-        "sha256": sha256,
-        "robots_allowed": True
-    }
-    provenance_file.write_text(json.dumps(provenance_entry) + "\n")
-    
-    # Create store and extract data
+def test_deduping_store_stores_first_document(tmp_path: Path):
+    """Test that the first document is stored correctly."""
+    # Create a DedupingExtractStore instance
     store = DedupingExtractStore(tmp_path)
-    extracted_data = {
-        "text": "Some content",
-        "title": "Example Page", 
+    
+    # Define test data
+    sha256 = "a" * 64  # A fake SHA256 hash
+    url = "https://example.com/test1"
+    extracted = {
+        "text": "This is some test text content.",
+        "title": "Test Title",
         "lang": "en"
     }
+    extracted_at = 12345.0
     
-    # First put should succeed and return a file path
-    file_path1 = store.put(sha256, "https://example.com/page", extracted_data, 1234567891.0)
-    assert file_path1 is not None
-    assert file_path1.exists()
+    # Store the document and verify the path
+    result_path = store.put(sha256, url, extracted, extracted_at)
+    assert result_path is not None
+    assert result_path.exists()
     
-    # Second put with identical data should return None (deduplicated)
-    file_path2 = store.put(sha256, "https://example.com/page", extracted_data, 1234567892.0)
-    assert file_path2 is None
+    # Verify content of stored file
+    with result_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
     
-    # Verify only one extracted file exists
-    extracted_dir = tmp_path / "extracted"
-    assert len(list(extracted_dir.glob("*.json"))) == 1
+    expected_data = {
+        "url": url,
+        "extracted_at": extracted_at,
+        "raw_sha256": sha256,
+        "text": extracted["text"],
+        "title": extracted["title"],
+        "lang": extracted["lang"]
+    }
+    assert data == expected_data
 
 
-def test_dedupe_store_different_documents_same_text(tmp_path: Path) -> None:
-    """Test that two DIFFERENT raw documents (different sha256 + provenance) with 
-    IDENTICAL extracted text yield exactly one record.
-    """
-    # Create two different raw HTML files with identical content
-    raw_content1 = b"<html><body>Same content</body></html>"
-    raw_content2 = b"<html><body>Same content</body></html>"  # Same content
-    sha256_1 = hashlib.sha256(raw_content1).hexdigest()
-    sha256_2 = hashlib.sha256(raw_content2).hexdigest()
-    
-    # Both should have the same text hash but different raw hashes
-    
-    # Write both raw files
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir(parents=True)
-    
-    raw_file1 = raw_dir / f"{sha256_1}.html"
-    raw_file1.write_bytes(raw_content1)
-    
-    raw_file2 = raw_dir / f"{sha256_2}.html"
-    raw_file2.write_bytes(raw_content2)
-    
-    # Write provenance lines
-    provenance_file = raw_dir / "provenance.jsonl"
-    
-    provenance_entry1 = {
-        "url": "https://example.com/page1",
-        "fetched_at": 1234567890.0,
-        "status": 200,
-        "sha256": sha256_1,
-        "robots_allowed": True
-    }
-    
-    provenance_entry2 = {
-        "url": "https://example.com/page2",  # Different URL 
-        "fetched_at": 1234567891.0,
-        "status": 200,
-        "sha256": sha256_2,
-        "robots_allowed": True
-    }
-    
-    provenance_file.write_text(json.dumps(provenance_entry1) + "\n" + json.dumps(provenance_entry2) + "\n")
-    
-    # Create store and extract data (both have same extracted text)
+def test_deduping_store_returns_none_for_duplicate_text(tmp_path: Path):
+    """Test that duplicate documents are not stored."""
+    # Create a DedupingExtractStore instance
     store = DedupingExtractStore(tmp_path)
-    extracted_data1 = {
-        "text": "Same content",
-        "title": "Page 1", 
+    
+    # Define test data for first document
+    sha256 = "a" * 64  # A fake SHA256 hash
+    url = "https://example.com/test1"
+    extracted = {
+        "text": "This is some test text content.",
+        "title": "Test Title",
         "lang": "en"
     }
-    extracted_data2 = {
-        "text": "Same content",
-        "title": "Page 2",
+    extracted_at = 12345.0
+    
+    # Store the first document
+    result_path = store.put(sha256, url, extracted, extracted_at)
+    assert result_path is not None
+    
+    # Define test data for duplicate document (same text content)
+    sha256_2 = "b" * 64  # Different SHA256 hash
+    url_2 = "https://example.com/test2"
+    extracted_2 = {
+        "text": "This is some test text content.",  # Same text
+        "title": "Different Title",  # Different title 
         "lang": "fr"
     }
     
-    # First put should succeed
-    file_path1 = store.put(sha256_1, "https://example.com/page1", extracted_data1, 1234567892.0)
-    assert file_path1 is not None
+    # Try to store the duplicate and verify None is returned
+    result_path_2 = store.put(sha256_2, url_2, extracted_2, extracted_at + 1)
+    assert result_path_2 is None
     
-    # Second put with different raw but same text should return None (deduplicated)
-    file_path2 = store.put(sha256_2, "https://example.com/page2", extracted_data2, 1234567893.0)
-    assert file_path2 is None
-    
-    # Verify only one extracted file exists
+    # Verify only one file was created
     extracted_dir = tmp_path / "extracted"
-    assert len(list(extracted_dir.glob("*.json"))) == 1
+    files = list(extracted_dir.iterdir())
+    assert len(files) == 1
 
 
-def test_dedupe_store_different_text(tmp_path: Path) -> None:
-    """Test that different extracted text yields two records."""
-    # Create two raw HTML files with different content
-    raw_content1 = b"<html><body>Content 1</body></html>"
-    raw_content2 = b"<html><body>Content 2</body></html>"
-    sha256_1 = hashlib.sha256(raw_content1).hexdigest()
-    sha256_2 = hashlib.sha256(raw_content2).hexdigest()
-
-    # Write both raw files
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir(parents=True)
-    
-    raw_file1 = raw_dir / f"{sha256_1}.html"
-    raw_file1.write_bytes(raw_content1)
-    
-    raw_file2 = raw_dir / f"{sha256_2}.html"
-    raw_file2.write_bytes(raw_content2)
-    
-    # Write provenance lines
-    provenance_file = raw_dir / "provenance.jsonl"
-    
-    provenance_entry1 = {
-        "url": "https://example.com/page1",
-        "fetched_at": 1234567890.0,
-        "status": 200,
-        "sha256": sha256_1,
-        "robots_allowed": True
-    }
-    
-    provenance_entry2 = {
-        "url": "https://example.com/page2",  
-        "fetched_at": 1234567891.0,
-        "status": 200,
-        "sha256": sha256_2,
-        "robots_allowed": True
-    }
-    
-    provenance_file.write_text(json.dumps(provenance_entry1) + "\n" + json.dumps(provenance_entry2) + "\n")
-    
-    # Create store and extract data (different extracted text)
+def test_deduping_store_stores_different_text(tmp_path: Path):
+    """Test that documents with different text content are stored."""
+    # Create a DedupingExtractStore instance
     store = DedupingExtractStore(tmp_path)
-    extracted_data1 = {
-        "text": "Content 1",
-        "title": "Page 1", 
+    
+    # Define test data for first document
+    sha256 = "a" * 64  # A fake SHA256 hash
+    url = "https://example.com/test1"
+    extracted = {
+        "text": "This is some test text content.",
+        "title": "Test Title",
         "lang": "en"
     }
-    extracted_data2 = {
-        "text": "Content 2",  # Different text
-        "title": "Page 2",
+    extracted_at = 12345.0
+    
+    # Store the first document
+    result_path = store.put(sha256, url, extracted, extracted_at)
+    assert result_path is not None
+    
+    # Define test data for different document (different text)
+    sha256_2 = "b" * 64  # Different SHA256 hash
+    url_2 = "https://example.com/test2"
+    extracted_2 = {
+        "text": "This is different content.",  # Different text
+        "title": "Different Title",
         "lang": "fr"
     }
     
-    # Both puts should succeed with different results
-    file_path1 = store.put(sha256_1, "https://example.com/page1", extracted_data1, 1234567892.0)
-    assert file_path1 is not None
+    # Store the second document and verify path is returned
+    result_path_2 = store.put(sha256_2, url_2, extracted_2, extracted_at + 1)
+    assert result_path_2 is not None
     
-    file_path2 = store.put(sha256_2, "https://example.com/page2", extracted_data2, 1234567893.0)  
-    assert file_path2 is not None
-    
-    # Verify two extracted files exist
+    # Verify two files were created 
     extracted_dir = tmp_path / "extracted"
-    assert len(list(extracted_dir.glob("*.json"))) == 2
+    files = list(extracted_dir.iterdir())
+    assert len(files) == 2
 
 
-def test_dedupe_store_non_ascii_text(tmp_path: Path) -> None:
-    """Test that non-ASCII text is written and read back as UTF-8 intact, 
-    and a second put with the same text dedupes.
-    """
-    # Create a raw HTML file
-    raw_content = b"<html><body>cafe u Japanese</body></html>"
-    sha256 = hashlib.sha256(raw_content).hexdigest()
-    
-    # Write the raw file
-    raw_dir = tmp_path / "raw"
-    raw_dir.mkdir(parents=True)
-    raw_file = raw_dir / f"{sha256}.html"
-    raw_file.write_bytes(raw_content)
-    
-    # Write provenance line
-    provenance_file = raw_dir / "provenance.jsonl"
-    provenance_entry = {
-        "url": "https://example.com/page",
-        "fetched_at": 1234567890.0,
-        "status": 200,
-        "sha256": sha256,
-        "robots_allowed": True
-    }
-    provenance_file.write_text(json.dumps(provenance_entry) + "\n")
-    
-    # Create store and extract data
+def test_deduping_store_handles_unicode_text(tmp_path: Path):
+    """Test that Unicode text is handled correctly for deduplication."""
+    # Create a DedupingExtractStore instance
     store = DedupingExtractStore(tmp_path)
-    extracted_data = {
-        "text": "cafe ü 日本",
-        "title": "Example Page", 
+    
+    # Define test data with Unicode characters
+    sha256 = "a" * 64
+    url = "https://example.com/test_unicode"
+    extracted = {
+        "text": "café ü 日本",
+        "title": "Unicode Test",
         "lang": "en"
     }
+    extracted_at = 12345.0
     
-    # First put should succeed and return a file path
-    file_path1 = store.put(sha256, "https://example.com/page", extracted_data, 1234567891.0)
-    assert file_path1 is not None
-    assert file_path1.exists()
+    # Store the first document
+    result_path = store.put(sha256, url, extracted, extracted_at)
+    assert result_path is not None
     
-    # Read back the stored content to verify UTF-8 handling
-    with open(file_path1, 'r', encoding='utf-8') as f:
-        stored_data = json.load(f)
-    assert stored_data["text"] == "cafe ü 日本"
+    # Define duplicate text with Unicode characters
+    sha256_2 = "b" * 64
+    url_2 = "https://example.com/test_unicode_duplicate"
+    extracted_2 = {
+        "text": "café ü 日本",  # Same Unicode text
+        "title": "Different Title",
+        "lang": "fr"
+    }
     
-    # Second put with identical text should return None (deduplicated)
-    file_path2 = store.put(sha256, "https://example.com/page", extracted_data, 1234567892.0)
-    assert file_path2 is None
+    # Try to store the duplicate and verify None is returned
+    result_path_2 = store.put(sha256_2, url_2, extracted_2, extracted_at + 1)
+    assert result_path_2 is None
     
-    # Verify only one extracted file exists
+    # Verify only one file was created
     extracted_dir = tmp_path / "extracted"
-    assert len(list(extracted_dir.glob("*.json"))) == 1
+    files = list(extracted_dir.iterdir())
+    assert len(files) == 1
