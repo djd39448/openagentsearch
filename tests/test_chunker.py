@@ -12,26 +12,20 @@ def test_deterministic_chunk_sequence():
     overlap = 3
     
     result = chunk_text(doc_sha256, text, chunk_size, overlap)
-    
-    # Should produce exactly 4 chunks
-    assert len(result) == 4
-    
-    # Check each chunk's content and index
-    assert result[0]["chunk_index"] == 0
-    assert result[0]["text"] == "This is a "
-    assert result[0]["doc_sha256"] == doc_sha256
-    
-    assert result[1]["chunk_index"] == 1
-    assert result[1]["text"] == "is a test"
-    assert result[1]["doc_sha256"] == doc_sha256
-    
-    assert result[2]["chunk_index"] == 2
-    assert result[2]["text"] == "a test se"
-    assert result[2]["doc_sha256"] == doc_sha256
-    
-    assert result[3]["chunk_index"] == 3
-    assert result[3]["text"] == "test sente"
-    assert result[3]["doc_sha256"] == doc_sha256
+
+    # 37 characters, size 10, overlap 3: starts advance by 7 -> 0, 7, 14, 21, 28.
+    # The chunk starting at 28 reaches the end of the text, so it is the last one.
+    expected = [
+        {"doc_sha256": doc_sha256, "chunk_index": 0, "text": "This is a "},
+        {"doc_sha256": doc_sha256, "chunk_index": 1, "text": " a test se"},
+        {"doc_sha256": doc_sha256, "chunk_index": 2, "text": " sentence "},
+        {"doc_sha256": doc_sha256, "chunk_index": 3, "text": "ce for chu"},
+        {"doc_sha256": doc_sha256, "chunk_index": 4, "text": "chunking."},
+    ]
+    assert result == expected
+
+    # Same input, same output: the function is deterministic.
+    assert chunk_text(doc_sha256, text, chunk_size, overlap) == expected
 
 
 def test_stable_chunk_index_and_doc_hash():
@@ -91,11 +85,13 @@ def test_source_coverage_reconstruction():
     
     chunks = chunk_text(doc_sha256, text, chunk_size, overlap)
     
-    # Reconstruct the original text
-    reconstructed = chunks[0]["text"]  # First chunk in full
-    for i in range(1, len(chunks)):
-        # Remove overlap from subsequent chunks before appending
-        start_of_overlap = len(chunks[i]["text"]) - overlap
-        reconstructed += chunks[i]["text"][start_of_overlap:]
-    
+    # Reconstruct the original text: chunk 0 in full, then each later chunk with its
+    # LEADING `overlap` characters removed (those repeat the tail of the previous chunk).
+    reconstructed = chunks[0]["text"]
+    for chunk in chunks[1:]:
+        reconstructed += chunk["text"][overlap:]
+
     assert reconstructed == text
+    # Every chunk except the last is exactly chunk_size long; the last may be shorter.
+    assert all(len(c["text"]) == chunk_size for c in chunks[:-1])
+    assert 0 < len(chunks[-1]["text"]) <= chunk_size
