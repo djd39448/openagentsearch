@@ -1,3 +1,4 @@
+import json
 import urllib.error
 from unittest.mock import Mock, patch
 import pytest
@@ -5,27 +6,29 @@ from openagentsearch.embed.ollama import OllamaConnectionError, OllamaEmbedClien
 
 
 def test_success():
-    """Test successful embedding."""
-    # We'll test that the right data and method is sent through mocking urllib.request.urlopen directly
-    with patch('urllib.request.urlopen') as mock_urlopen:
-        # Configure the mock to return a successful response
-        mock_response = Mock()
-        mock_response.read.return_value = b'{"embedding": [0.1, 2.0, -3.5]}'
-        mock_urlopen.return_value = mock_response
-        
-        # Create the client (using default transport)
-        client = OllamaEmbedClient()
-        
-        # Call embed method
-        result = client.embed("hello")
-        
-        # Verify urlopen was called with right arguments - the request details are in how urllib handles it implicitly
-        assert mock_urlopen.called
-        
-        # Verify the result
-        assert result == [0.1, 2.0, -3.5]
-        for x in result:
-            assert isinstance(x, float)
+    """An injected transport sees exactly the specified request and its reply is parsed to floats."""
+    seen = []
+
+    def transport(request):
+        seen.append(request)
+        return b'{"embedding": [0.1, 2, -3.5]}'
+
+    client = OllamaEmbedClient(transport=transport)
+
+    result = client.embed("hello")
+
+    # Exactly one request, with the shape the P3.2 spec fixes.
+    assert len(seen) == 1
+    request = seen[0]
+    assert request.full_url == "http://localhost:11434/api/embeddings"
+    assert request.get_method() == "POST"
+    assert request.get_header("Content-type") == "application/json"
+    assert json.loads(request.data.decode("utf-8")) == {"model": "nomic-embed-text", "prompt": "hello"}
+
+    # Every element comes back as a float, including the integer 2.
+    assert result == [0.1, 2.0, -3.5]
+    for x in result:
+        assert isinstance(x, float)
 
 
 def test_connection_failure():
