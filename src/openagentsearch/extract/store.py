@@ -83,6 +83,6 @@ class ExtractStore:
         
         # Write to target file
         output_file = target_dir / f"{sha256}.json"
-        output_file.write_text(json.dumps(data, sort_keys=True, ensure_ascii=False))
+        output_file.write_text(json.dumps(data, sort_keys=True, ensure_ascii=False), encoding="utf-8")
         
         return output_file
