@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "openagentsearch"
 version = "0.1.0"
-license = {text = "GPL3"}
+license = {text = "MIT"}
 default-description = ""
 keywords = ["websearch", "agent", "AI", "open-source"]
 dependencies = [
