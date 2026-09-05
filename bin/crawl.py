@@ -361,7 +361,26 @@ class State:
             for rid in sorted(self.rooms):
                 fh.write(json.dumps(self.rooms[rid], ensure_ascii=False, sort_keys=True))
                 fh.write("\n")
-        os.replace(tmp, self.rooms_path)
+        # On Windows, os.replace fails with PermissionError while another process holds the
+        # destination open without delete sharing (a reader of rooms.jsonl such as the room-view
+        # task or the build agent). One such collision killed a 26-hour crawl on 2026-09-05; retry
+        # briefly, then keep the state in memory and try again at the next flush instead of dying.
+        import time as _time
+
+        delay = 0.2
+        for attempt in range(6):
+            try:
+                os.replace(tmp, self.rooms_path)
+                return
+            except PermissionError as exc:
+                if attempt == 5:
+                    sys.stderr.write(
+                        f"flush: rooms.jsonl busy after {attempt + 1} attempts ({exc}); "
+                        "keeping in-memory state, will retry at the next flush\n"
+                    )
+                    return
+                _time.sleep(delay)
+                delay *= 2
 
     def write_meta(self, fetcher: Fetcher, now_ts: Optional[int]) -> None:
         last_activity = max(
