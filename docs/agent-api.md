@@ -48,7 +48,7 @@ This document specifies the machine-readable contract for OpenAgentSearch's agen
 
 | Name | In | Type | Required | Default | Constraints | Notes |
 |------|----|------|----------|---------|-------------|-------|
-| doc_sha256 | path | string | Yes | None | `pattern` [0-9a-f]{{64}}, `case` lower | Exactly 64 lowercase ASCII hex characters. |
+| doc_sha256 | path | string | Yes | None | `pattern` `[0-9a-f]{64}`, `case` lower | Exactly 64 lowercase ASCII hex characters. |
 
 ### Success fields
 
