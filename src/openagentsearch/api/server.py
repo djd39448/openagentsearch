@@ -47,12 +47,13 @@ def create_server(
                 self.end_headers()
                 self.wfile.write(response_data)
             else:
-                # Try prefix routes (if any are defined)
+                # Try prefix routes (if any are defined). Both names must exist even when no
+                # prefix routes were registered, or the check below raises UnboundLocalError
+                # and the connection is dropped (this broke GET /nope on 41407e2).
+                matched_prefix = None
+                matched_handler = None
                 if prefix_routes:
                     # Find the longest matching prefix
-                    matched_prefix = None
-                    matched_handler = None
-                    
                     for prefix, handler in prefix_routes.items():
                         if path.startswith(prefix):
                             # Keep the longest prefix that matches
@@ -95,12 +96,13 @@ def create_server(
                 self.send_header("Content-Length", str(len(response_data)))
                 self.end_headers()
             else:
-                # Try prefix routes (if any are defined)
+                # Try prefix routes (if any are defined). Both names must exist even when no
+                # prefix routes were registered, or the check below raises UnboundLocalError
+                # and the connection is dropped (this broke GET /nope on 41407e2).
+                matched_prefix = None
+                matched_handler = None
                 if prefix_routes:
                     # Find the longest matching prefix
-                    matched_prefix = None
-                    matched_handler = None
-                    
                     for prefix, handler in prefix_routes.items():
                         if path.startswith(prefix):
                             # Keep the longest prefix that matches

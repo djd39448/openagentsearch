@@ -146,6 +146,9 @@ def test_doc_endpoint_invalid_id_formats() -> None:
         "a" * 65,                # One character too long
         "A" * 64,                # Uppercase characters (should not be allowed)
         "gg" * 32,               # Non-hex characters
+        "a" * 64 + "/",          # Added trailing slash
+        "a" * 64 + "/extra",     # Extra path segment
+        "../" + "a" * 61,        # Path traversal attempt of the right length
     ]
     
     with tempfile.TemporaryDirectory() as tmpdir:
