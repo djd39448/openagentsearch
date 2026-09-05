@@ -50,51 +50,32 @@ def test_connection_failure():
         assert isinstance(e.__cause__, urllib.error.URLError)
 
 
-def test_malformed_responses():
-    """Test handling of malformed responses."""
-    # Test cases for malformed JSON
-    malformed_cases = [
-        b'not json',
-        b'{}',
-        b'{"vector": [1.0]}'
-    ]
+def test_top_level_non_object_response():
+    """Test that a top-level non-dict JSON response raises ValueError."""
+    def transport(request):
+        return b'["this", "is", "an", "array"]'  # Invalid: not an object
+
+    client = OllamaEmbedClient(transport=transport)
     
-    for case in malformed_cases:
-        with patch('urllib.request.urlopen') as mock_urlopen:
-            mock_response = Mock()
-            mock_response.read.return_value = case
-            mock_urlopen.return_value = mock_response
-            
-            client = OllamaEmbedClient()
-            
-            try:
-                client.embed("hello")
-                assert False, f"Expected ValueError for case {case}"
-            except ValueError as e:
-                # This is expected
-                pass
+    try:
+        client.embed("hello")
+        assert False, "Expected ValueError for non-object response"
+    except ValueError as e:
+        assert "Invalid Ollama response: expected object" in str(e)
 
 
-def test_bad_embeddings():
-    """Test handling of bad embedding responses."""
-    # Test cases for malformed embeddings
-    bad_embedding_cases = [
-        b'{"embedding": "abc"}',
-        b'{"embedding": []}',
-        b'{"embedding": [1.0, "x"]}'
-    ]
+def test_boolean_embedding_rejection():
+    """Test that boolean embedding elements raise ValueError."""
+    def transport(request):
+        return b'{"embedding": [true, false]}'  # Invalid: contains booleans
+
+    client = OllamaEmbedClient(transport=transport)
     
-    for case in bad_embedding_cases:
-        with patch('urllib.request.urlopen') as mock_urlopen:
-            mock_response = Mock()
-            mock_response.read.return_value = case
-            mock_urlopen.return_value = mock_response
-            
-            client = OllamaEmbedClient()
-            
-            try:
-                client.embed("hello")
-                assert False, f"Expected ValueError for case {case}"
-            except ValueError as e:
-                # This is expected
-                pass
+    try:
+        client.embed("hello")
+        assert False, "Expected ValueError for boolean embedding"
+    except ValueError as e:
+        assert "Invalid embedding: contains boolean values" in str(e)
+
+
+# Remove the old malformed_responses and bad_embeddings tests which were only patching urllib

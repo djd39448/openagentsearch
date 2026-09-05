@@ -22,12 +22,11 @@ def make_doc_route(root: Path) -> Callable[[str, dict[str, list[str]]], tuple[in
                 extracted = json.load(f)
         except FileNotFoundError:
             return (404, {"error": "not_found"})
+        except (OSError, UnicodeError) as exc:
+            raise ValueError("Error reading extracted document") from exc
         except json.JSONDecodeError as e:
             # Malformed JSON in extracted document - raise ValueError as specified
             raise ValueError(f"Malformed extracted JSON: {e}")
-        except Exception:
-            # Any other error reading the file - raise ValueError as specified
-            raise ValueError("Error reading extracted document")
         
         # Validate required fields
         required_fields = ["url", "title", "lang", "text", "extracted_at"]
@@ -48,11 +47,17 @@ def make_doc_route(root: Path) -> Callable[[str, dict[str, list[str]]], tuple[in
                         try:
                             prov_entry = json.loads(line)
                         except json.JSONDecodeError:
-                            # Skip malformed lines
+                            # Skip malformed UNRELATED lines - they're just skipped
                             continue
                         
                         # Check if this entry matches our doc
                         if prov_entry.get("sha256") == doc_sha256 and prov_entry.get("url") == extracted["url"]:
+                            # Validate that all required fields exist in the matching entry
+                            required_provenance_fields = ["url", "fetched_at", "status", "sha256", "robots_allowed"]
+                            for field in required_provenance_fields:
+                                if field not in prov_entry:
+                                    raise ValueError("Malformed matching provenance entry") from KeyError(f"Missing field '{field}'")
+                                
                             provenance = {
                                 "url": prov_entry["url"],
                                 "fetched_at": prov_entry["fetched_at"],
@@ -61,9 +66,11 @@ def make_doc_route(root: Path) -> Callable[[str, dict[str, list[str]]], tuple[in
                                 "robots_allowed": prov_entry["robots_allowed"]
                             }
                             break
-            except Exception:
-                # If we can't read provenance, provenance remains None
-                pass
+            except (OSError, UnicodeError) as exc:
+                raise ValueError("Error reading provenance") from exc
+        elif not provenance_path.exists():
+            # Missing provenance file is valid - treat it as null provenance  
+            pass
         
         # Return the document data with appropriate fields
         response_data = {

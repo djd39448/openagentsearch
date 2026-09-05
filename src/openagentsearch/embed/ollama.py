@@ -19,7 +19,8 @@ class OllamaEmbedClient:
 
     def _default_transport(self, request: urllib.request.Request) -> bytes:
         """Default transport that uses urllib.request.urlopen."""
-        return urllib.request.urlopen(request).read()
+        with urllib.request.urlopen(request) as response:
+            return response.read()
 
     def embed(self, text: str) -> List[float]:
         """Embed the given text using the Ollama server.
@@ -56,18 +57,26 @@ class OllamaEmbedClient:
             response_data = json.loads(response_bytes)
         except json.JSONDecodeError:
             raise ValueError(f"Malformed JSON response from Ollama server: {response_bytes}")
+        
+        # Validate the response structure - check if it's a dictionary (expected for top-level object)
+        if not isinstance(response_data, dict):
+            raise ValueError("Invalid Ollama response: expected object")
             
-        # Validate the response structure
+        # Validate that embedding key exists and is a list  
         if "embedding" not in response_data:
             raise ValueError(f"Missing 'embedding' key in response: {response_data}")
             
         embedding = response_data["embedding"]
         
-        # Validate that embedding is a list
+        # Validate that embedding is a list (was previously also checked, but let's make it explicit)
         if not isinstance(embedding, list):
             raise ValueError(f"Embedding should be a list, got {type(embedding)}")
             
-        # Validate that all elements are numbers
+        # Validate that the first element is NOT a boolean
+        if len(embedding) > 0 and isinstance(embedding[0], bool):
+            raise ValueError("Invalid embedding: contains boolean values instead of float values")
+            
+        # Validate that all elements are numbers (excluding booleans now)
         if len(embedding) == 0:
             raise ValueError("Empty embedding returned by Ollama server")
             
