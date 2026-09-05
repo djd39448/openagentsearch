@@ -9,7 +9,7 @@ This document specifies the machine-readable contract for OpenAgentSearch's agen
 | Name | In | Type | Required | Default | Constraints | Notes |
 |------|----|------|----------|---------|-------------|-------|
 | q | query | string | Yes | None | `max_length` 512, `non_empty_after_strip` True | Query string, maximum 512 characters. Preserved verbatim when accepted. |
-| k | query | integer | No | 10 | `min` 1, `max` 50 | Number of results to return, default 10. |
+| k | query | integer | No | 10 | `min` 1, `max` 50, `syntax` ascii_digits | Number of results to return, default 10. |
 
 ### Success fields
 
@@ -34,12 +34,12 @@ This document specifies the machine-readable contract for OpenAgentSearch's agen
 |--------|------------|------|
 | 400 | missing_query | Missing required parameter q or q is empty after stripping. |
 | 400 | query_too_long | Query parameter q exceeds 512 characters. |
-| 400 | invalid_k | Parameter k is not a valid number or out of range [1, 50]. |
+| 400 | invalid_k | Parameter k must contain only ASCII digits and represent an integer in the inclusive range 1..50. |
 
 ### Contract JSON
 
 ```json
-{"params": {"k": {"constraints": {"max": 50, "min": 1}, "default": 10, "in": "query", "notes": "Number of results to return, default 10.", "required": false, "type": "integer"}, "q": {"constraints": {"max_length": 512, "non_empty_after_strip": true}, "default": null, "in": "query", "notes": "Query string, maximum 512 characters. Preserved verbatim when accepted.", "required": true, "type": "string"}}, "success": {"keys": ["query", "k", "results"], "nested": {"results": {"keys": ["chunk_id", "doc_sha256", "doc_url", "score", "snippet"]}}, "status": 200}, "errors": [{"error": "missing_query", "status": 400, "when": "Missing required parameter q or q is empty after stripping."}, {"error": "query_too_long", "status": 400, "when": "Query parameter q exceeds 512 characters."}, {"error": "invalid_k", "status": 400, "when": "Parameter k is not a valid number or out of range [1, 50]."}]}
+{"params": {"k": {"constraints": {"max": 50, "min": 1, "syntax": "ascii_digits"}, "default": 10, "in": "query", "notes": "Number of results to return, default 10.", "required": false, "type": "integer"}, "q": {"constraints": {"max_length": 512, "non_empty_after_strip": true}, "default": null, "in": "query", "notes": "Query string, maximum 512 characters. Preserved verbatim when accepted.", "required": true, "type": "string"}}, "success": {"keys": ["query", "k", "results"], "nested": {"results": {"keys": ["chunk_id", "doc_sha256", "doc_url", "score", "snippet"], "nullable": ["doc_url"]}}, "status": 200}, "errors": [{"error": "missing_query", "status": 400, "when": "Missing required parameter q or q is empty after stripping."}, {"error": "query_too_long", "status": 400, "when": "Query parameter q exceeds 512 characters."}, {"error": "invalid_k", "status": 400, "when": "Parameter k must contain only ASCII digits and represent an integer in the inclusive range 1..50."}]}
 ```
 
 ## GET /doc/{doc_sha256}
@@ -74,5 +74,5 @@ This document specifies the machine-readable contract for OpenAgentSearch's agen
 ### Contract JSON
 
 ```json
-{"params": {"doc_sha256": {"constraints": {"case": "lower", "pattern": "[0-9a-f]{64}"}, "default": null, "in": "path", "notes": "Exactly 64 lowercase ASCII hex characters.", "required": true, "type": "string"}}, "success": {"keys": ["doc_sha256", "url", "title", "lang", "text", "extracted_at", "provenance"], "nested": {"provenance": {"keys": ["url", "fetched_at", "status", "sha256", "robots_allowed"]}}, "status": 200}, "errors": [{"error": "invalid_sha256", "status": 400, "when": "Path parameter doc_sha256 is not exactly 64 lowercase ASCII hex characters."}, {"error": "not_found", "status": 404, "when": "Document with the given SHA256 hash does not exist in the system."}]}
+{"params": {"doc_sha256": {"constraints": {"case": "lower", "pattern": "[0-9a-f]{64}"}, "default": null, "in": "path", "notes": "Exactly 64 lowercase ASCII hex characters.", "required": true, "type": "string"}}, "success": {"keys": ["doc_sha256", "url", "title", "lang", "text", "extracted_at", "provenance"], "nested": {"provenance": {"keys": ["url", "fetched_at", "status", "sha256", "robots_allowed"], "nullable": ["provenance"]}}, "status": 200}, "errors": [{"error": "invalid_sha256", "status": 400, "when": "Path parameter doc_sha256 is not exactly 64 lowercase ASCII hex characters."}, {"error": "not_found", "status": 404, "when": "Document with the given SHA256 hash does not exist in the system."}]}
 ```
