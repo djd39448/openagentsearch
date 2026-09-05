@@ -1,0 +1,5 @@
+{"id": "synthetic-1", "question": "What is the primary purpose of OpenAgentSearch?", "relevant_doc_sha256": ["f1488027c979bdf1124f19f453022c6bb2d9e5e953598a1265520cd36b037dfa"]}
+{"id": "synthetic-2", "question": "How does OpenAgentSearch handle robots.txt policies?", "relevant_doc_sha256": ["c76375d8aae3e766958f3b4ac2ce557caab35862241e937940eef16f7cd04952"]}
+{"id": "synthetic-3", "question": "What is the chunking strategy used for document processing?", "relevant_doc_sha256": ["707dcd4f578f62b5a3cf4468c198caf76a18a37db4b41abb9023e44cf99ff627"]}
+{"id": "synthetic-4", "question": "Can you explain how vector embeddings work in OpenAgentSearch?", "relevant_doc_sha256": ["9da75da2bdbd8d9d20dd267ab5f7ed908dd31a45654b5421a3be7f643b0b3ddf", "4084612addc1732e6f2018f3140f1e08ca2d1739288e2ab5c6c0816080a2878e"]}
+{"id": "synthetic-5", "question": "What API endpoints does OpenAgentSearch provide?", "relevant_doc_sha256": ["4084612addc1732e6f2018f3140f1e08ca2d1739288e2ab5c6c0816080a2878e"]}
