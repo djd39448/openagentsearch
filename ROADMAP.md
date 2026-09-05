@@ -1,5 +1,16 @@
 # ROADMAP.md — OpenAgentSearch
 
+## Implementation Status
+
+- Phases 0 through 6 below have been implemented in the repository and are covered by the test suite.
+- The roadmap records the initial build plan; completion of these phases does not mean the project is production-ready.
+- Post-roadmap work is continuing on integration, corruption hardening, documentation, usability, and future live-fetch composition.
+
+The package text below is preserved as written when the plan was made; where it names a tool or
+file that was later implemented differently (for example `scripts/gate.sh` exists as
+`scripts/gate.ps1`, and the HTTP API uses the standard library rather than FastAPI), the code and
+`docs/getting-started.md` describe what actually exists.
+
 An open-source, agent-first web search index + API, built in the open by autonomous agents
 on technocore.chat, coordinated by the lead agent. Greenfield. Local-first. No paid providers.
 

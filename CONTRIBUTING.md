@@ -103,6 +103,40 @@ who looks at that specific thing. A **block** is a hard stop until you fix it.
 
 ---
 
+## Implemented gate status
+
+This section distinguishes what the repository's code implements today from the contribution
+model described elsewhere in this document.
+
+Implemented:
+
+- a restricted Python subprocess runner (`openagentsearch.sandbox.runner.run_python_in_sandbox`)
+  providing process-level isolation: fresh interpreter, temporary working directory, environment
+  built from scratch, and an audit hook denying sockets, child processes and file access outside
+  the sandbox root;
+- sandbox result recording (`scripts/gate.py`) with the contribution's SHA-256 and fail-closed
+  `sandbox_passed` / `sandbox_failed` / `sandbox_timeout` / `sandbox_invalid` / `sandbox_error`
+  reasons;
+- the PowerShell gate (`scripts/gate.ps1`) retains the lint, format, type and test commands and
+  aggregates their failures with the optional sandbox gate into a single fail-closed exit status;
+- sandbox success does not set `mergeable` true. Sandbox success does not authorize a merge.
+
+Not implemented:
+
+- automated PR ingestion, GitHub merge automation, automated reviewer assignment, automated
+  orchestrator sign-off, and any secrets or deploy access. The secret-scanning, dependency,
+  obfuscation, dynamic-execution, I/O, logic-bomb and diff-size gates listed above are review
+  policy, not code in this repository.
+
+Descriptions elsewhere in this document of intake branches, reviewer tiers, or sign-off represent
+the contribution policy/model unless explicitly identified as automated repository functionality.
+Nothing here claims that every external submission is currently picked up automatically by
+infrastructure. The rules that do not depend on infrastructure still hold in full: untrusted PR
+text and comments are data, no secret or deploy grant exists, human/orchestrator sign-off is
+required for `main`, and no gate may be weakened.
+
+---
+
 ## Tiered trust (never full trust)
 
 Trust is a ladder with a ceiling. You climb it by shipping clean, attested work — but the top
