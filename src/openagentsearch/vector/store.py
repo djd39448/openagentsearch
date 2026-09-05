@@ -1,10 +1,17 @@
 """Reopenable on-disk vector store backed by the standard-library sqlite3 module."""
 
 import json
+import math
 import sqlite3
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Union
+
+
+class StoreCorruptionError(ValueError):
+    """A persisted row is invalid (malformed vector_json, wrong shape or type, non-finite value,
+    or a corrupt dimension column). Raised only for data already in SQLite; caller input errors
+    in add() stay plain ValueError. The row is never repaired or rewritten."""
 
 
 class VectorStore:
@@ -67,21 +74,50 @@ class VectorStore:
                 raise ValueError(f"chunk_id '{chunk_id}' already exists") from exc
 
     def count(self) -> int:
+        """Physical row count (pure SQL). Rows are not deserialized or validated here, so a
+        corrupt row still counts; get() and load_all() are where corruption surfaces."""
         with self._lock:
             row = self._connection().execute("SELECT COUNT(*) FROM vectors").fetchone()
         return int(row[0])
 
     def _record(self, row: tuple) -> Dict[str, object]:
         chunk_id, doc_sha256, vector_json, text, stored_dimension = row
+        if isinstance(stored_dimension, bool) or not isinstance(stored_dimension, int) or stored_dimension <= 0:
+            raise StoreCorruptionError(
+                f"corrupt dimension column for chunk '{chunk_id}': {stored_dimension!r}"
+            )
         if stored_dimension != self.dimension:
-            raise ValueError(
+            raise StoreCorruptionError(
                 f"dimension mismatch for record {chunk_id}: configured {self.dimension}, "
                 f"stored {stored_dimension}"
             )
+        try:
+            parsed = json.loads(vector_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise StoreCorruptionError(f"corrupt vector_json for chunk '{chunk_id}'") from exc
+        if not isinstance(parsed, list):
+            raise StoreCorruptionError(f"corrupt vector_json for chunk '{chunk_id}': not a JSON list")
+        if len(parsed) != stored_dimension:
+            raise StoreCorruptionError(
+                f"corrupt vector_json for chunk '{chunk_id}': {len(parsed)} elements, "
+                f"stored dimension {stored_dimension}"
+            )
+        vector: List[float] = []
+        for i, value in enumerate(parsed):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise StoreCorruptionError(
+                    f"corrupt vector_json for chunk '{chunk_id}': element {i} is not numeric: {value!r}"
+                )
+            number = float(value)
+            if not math.isfinite(number):
+                raise StoreCorruptionError(
+                    f"corrupt vector_json for chunk '{chunk_id}': element {i} is not finite: {value!r}"
+                )
+            vector.append(number)
         return {
             "chunk_id": chunk_id,
             "doc_sha256": doc_sha256,
-            "vector": [float(x) for x in json.loads(vector_json)],
+            "vector": vector,
             "text": text,
         }
 

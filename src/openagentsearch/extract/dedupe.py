@@ -30,22 +30,36 @@ class DedupingExtractStore(ExtractStore):
         # Compute text hash - exactly as specified in the task
         text_hash = hashlib.sha256(extracted["text"].encode("utf-8")).hexdigest()
         
-        # Scan existing extracted files for matching text hash
+        # Scan existing extracted files for matching text hash. A malformed or invalid existing
+        # record is corpus corruption: fail loudly and do not emit the new document, because a
+        # silently skipped record could let a duplicate through.
         extracted_dir = self.root / "extracted"
         if extracted_dir.exists():
             for existing_file in extracted_dir.glob("*.json"):
                 try:
-                    # Read existing file and compute its text hash 
                     with existing_file.open('r', encoding='utf-8') as f:
                         existing_data = json.load(f)
-                        existing_text_hash = hashlib.sha256(existing_data["text"].encode("utf-8")).hexdigest()
-                        
-                    # If we find a matching text hash, do not store this one
-                    if existing_text_hash == text_hash:
-                        return None
-                except (json.JSONDecodeError, KeyError):
-                    # If there's an issue reading/analyzing the file, continue to next
-                    continue
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Malformed extracted record: {existing_file.name}") from exc
+                if not isinstance(existing_data, dict):
+                    raise ValueError(
+                        f"Malformed extracted record: {existing_file.name} (top level is not a JSON object)"
+                    )
+                try:
+                    existing_text = existing_data["text"]
+                except KeyError as exc:
+                    raise ValueError(
+                        f"Malformed extracted record: {existing_file.name} (missing 'text')"
+                    ) from exc
+                if not isinstance(existing_text, str):
+                    raise ValueError(
+                        f"Malformed extracted record: {existing_file.name} ('text' is not a string)"
+                    )
+                existing_text_hash = hashlib.sha256(existing_text.encode("utf-8")).hexdigest()
+
+                # If we find a matching text hash, do not store this one
+                if existing_text_hash == text_hash:
+                    return None
         
         # No duplicate found, delegate to parent class
         return super().put(sha256, url, extracted, extracted_at)
