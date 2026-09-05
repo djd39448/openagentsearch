@@ -1,8 +1,20 @@
 import json
 import urllib.error
-from unittest.mock import Mock, patch
-import pytest
+
 from openagentsearch.embed.ollama import OllamaConnectionError, OllamaEmbedClient
+
+
+def _client_returning(payload: bytes) -> OllamaEmbedClient:
+    """A client whose injected transport returns `payload` without touching the network."""
+    return OllamaEmbedClient(transport=lambda request: payload)
+
+
+def _expect_value_error(payload: bytes, fragment: str) -> None:
+    try:
+        _client_returning(payload).embed("hello")
+        assert False, f"{payload!r} should have raised ValueError"
+    except ValueError as exc:
+        assert fragment in str(exc), (payload, str(exc))
 
 
 def test_success():
@@ -32,50 +44,42 @@ def test_success():
 
 
 def test_connection_failure():
-    """Test handling of connection errors."""
-    # Create a mock transport that raises an exception
-    mock_transport = Mock()
-    mock_transport.side_effect = urllib.error.URLError("refused")
-    
-    # Create the client with our mock transport
-    client = OllamaEmbedClient(transport=mock_transport)
-    
-    # Call embed method and verify it raises the right exception
+    """A transport failure becomes OllamaConnectionError naming the base URL, with the cause chained."""
+
+    def transport(request):
+        raise urllib.error.URLError("refused")
+
+    client = OllamaEmbedClient(transport=transport)
     try:
         client.embed("hello")
         assert False, "Expected OllamaConnectionError to be raised"
     except OllamaConnectionError as e:
         assert "http://localhost:11434" in str(e)
-        assert e.__cause__ is not None
         assert isinstance(e.__cause__, urllib.error.URLError)
 
 
-def test_top_level_non_object_response():
-    """Test that a top-level non-dict JSON response raises ValueError."""
-    def transport(request):
-        return b'["this", "is", "an", "array"]'  # Invalid: not an object
+def test_malformed_responses():
+    """Malformed JSON and a missing embedding key are ValueError, via injected transports."""
+    _expect_value_error(b"not json", "Malformed JSON")
+    _expect_value_error(b"{}", "Missing 'embedding'")
+    _expect_value_error(b'{"vector": [1.0]}', "Missing 'embedding'")
 
-    client = OllamaEmbedClient(transport=transport)
-    
-    try:
-        client.embed("hello")
-        assert False, "Expected ValueError for non-object response"
-    except ValueError as e:
-        assert "Invalid Ollama response: expected object" in str(e)
+
+def test_bad_embeddings():
+    """Non-list, empty and non-numeric embeddings are ValueError, via injected transports."""
+    _expect_value_error(b'{"embedding": "abc"}', "should be a list")
+    _expect_value_error(b'{"embedding": []}', "Empty embedding")
+    _expect_value_error(b'{"embedding": [1.0, "x"]}', "non-numeric")
+    _expect_value_error(b'{"embedding": [1.0, null]}', "non-numeric")
+
+
+def test_top_level_non_object_response():
+    """A top-level JSON array or scalar is rejected before the embedding key is looked up."""
+    _expect_value_error(b'["this", "is", "an", "array"]', "Invalid Ollama response: expected object")
+    _expect_value_error(b"42", "Invalid Ollama response: expected object")
 
 
 def test_boolean_embedding_rejection():
-    """Test that boolean embedding elements raise ValueError."""
-    def transport(request):
-        return b'{"embedding": [true, false]}'  # Invalid: contains booleans
-
-    client = OllamaEmbedClient(transport=transport)
-    
-    try:
-        client.embed("hello")
-        assert False, "Expected ValueError for boolean embedding"
-    except ValueError as e:
-        assert "Invalid embedding: contains boolean values" in str(e)
-
-
-# Remove the old malformed_responses and bad_embeddings tests which were only patching urllib
+    """Boolean elements anywhere in the vector are rejected instead of becoming 0.0/1.0."""
+    _expect_value_error(b'{"embedding": [true, false]}', "Invalid embedding: contains boolean values")
+    _expect_value_error(b'{"embedding": [0.5, true]}', "Invalid embedding: contains boolean values")

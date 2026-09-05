@@ -1,161 +1,115 @@
-import json
-import os
-from pathlib import Path
-from unittest.mock import mock_open, patch
+"""P6 hardening: provenance/extracted-document error handling of the /doc route."""
 
-import pytest
+import builtins
+import json
+import tempfile
+import threading
+import urllib.request
+from pathlib import Path
 
 from openagentsearch.api.doc import make_doc_route
 from openagentsearch.api.server import create_server
 
-
-def test_provenance_line_skipped_but_valid_entry_still_returned():
-    """Test that a malformed unrelated line in provenance.jsonl is skipped but valid matching entry is still returned."""
-    # Create a mock provenance file with one malformed unrelated line followed by a valid matching line
-    provenance_lines = [
-        '{"url": "http://example.com/other", "fetched_at": 1234567890, "status": 200, "sha256": "abc123def456", "robots_allowed": true}\n',  # malformed unrelated line
-        '{"url": "http://example.com/page", "fetched_at": 1234567890, "status": 200, "sha256": "abc123def456", "robots_allowed": true}\n',  # valid matching line
-    ]
-    
-    # Create the temporary directory structure
-    temp_root = Path("C:/Users/trustcore-rdp/agentsearch-hermes/temp_work")
-    raw_dir = temp_root / "raw"
-    extracted_dir = temp_root / "extracted"
-    extracted_dir.mkdir(parents=True, exist_ok=True)
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Create an extracted document
-    doc_sha256 = "abc123def456" * 8  # 64 character hex string
-    extracted_file = extracted_dir / f"{doc_sha256}.json"
-    extracted_content = {
-        "url": "http://example.com/page",
-        "title": "Test Page",
-        "lang": "en",
-        "text": "This is test content.",
-        "extracted_at": 1234567890,
-    }
-    
-    with open(extracted_file, "w") as f:
-        json.dump(extracted_content, f)
-    
-    # Create provenance.jsonl
-    provenance_file = raw_dir / "provenance.jsonl"
-    with open(provenance_file, "w") as f:
-        for line in provenance_lines:
-            f.write(line)
-            
-    # Test the doc route function directly
-    doc_route = make_doc_route(temp_root)
-    
-    # Make a direct call to the route handler
-    status, response = doc_route(doc_sha256, {})
-    
-    assert status == 200
-    # Validate that it still finds and returns the valid matching provenance entry
-    assert "provenance" in response
-    assert response["provenance"]["url"] == "http://example.com/page"
-    assert response["provenance"]["status"] == 200
+SHA = "a1" * 32  # exactly 64 lowercase hex characters
+URL = "https://example.test/page"
+PROVENANCE_OK = {"url": URL, "fetched_at": 1234567800.0, "status": 200, "sha256": SHA, "robots_allowed": True}
 
 
-def test_malformed_matching_provenance_entry_raises_value_error():
-    """Test that a matching provenance line missing a required field raises ValueError with KeyError as cause."""
-    # Create the temporary directory structure
-    temp_root = Path("C:/Users/trustcore-rdp/agentsearch-hermes/temp_work")
-    raw_dir = temp_root / "raw"
-    extracted_dir = temp_root / "extracted"
-    extracted_dir.mkdir(parents=True, exist_ok=True)
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Create an extracted document
-    doc_sha256 = "abc123def456" * 8  # 64 character hex string
-    extracted_file = extracted_dir / f"{doc_sha256}.json"
-    extracted_content = {
-        "url": "http://example.com/page",
-        "title": "Test Page",
-        "lang": "en",
-        "text": "This is test content.",
-        "extracted_at": 1234567890,
-    }
-    
-    with open(extracted_file, "w") as f:
-        json.dump(extracted_content, f)
-    
-    # Create provenance.jsonl with a matching malformed line (missing one required field)
-    provenance_file = raw_dir / "provenance.jsonl"
-    with open(provenance_file, "w") as f:
-        # This is missing a required field 'status'
-        f.write('{"url": "http://example.com/page", "fetched_at": 1234567890, "sha256": "abc123def456", "robots_allowed": true}\n')
-    
-    # Test the doc route function directly
-    doc_route = make_doc_route(temp_root)
-    
-    # Make a direct call to the route handler which should raise ValueError with KeyError as cause
-    with pytest.raises(ValueError) as exc_info:
-        doc_route(doc_sha256, {})
-    
-    assert "Malformed matching provenance entry" in str(exc_info.value)
-    assert isinstance(exc_info.value.__cause__, KeyError)
+def _write_extracted(root: Path, text: str = "extracted text") -> None:
+    (root / "extracted").mkdir(parents=True, exist_ok=True)
+    doc = {"url": URL, "title": "Title", "lang": "en", "text": text, "extracted_at": 1234567890.0}
+    (root / "extracted" / f"{SHA}.json").write_text(json.dumps(doc), encoding="utf-8")
 
 
-def test_error_reading_provenance_raises_value_error():
-    """Test that if opening or reading raw/provenance.jsonl raises OSError/UnicodeError, ValueError is raised with proper chaining."""
-    # Create the temporary directory structure
-    temp_root = Path("C:/Users/trustcore-rdp/agentsearch-hermes/temp_work")
-    extracted_dir = temp_root / "extracted"
-    extracted_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Create an extracted document
-    doc_sha256 = "abc123def456" * 8  # 64 character hex string
-    extracted_file = extracted_dir / f"{doc_sha256}.json"
-    extracted_content = {
-        "url": "http://example.com/page",
-        "title": "Test Page",
-        "lang": "en",
-        "text": "This is test content.",
-        "extracted_at": 1234567890,
-    }
-    
-    with open(extracted_file, "w") as f:
-        json.dump(extracted_content, f)
-    
-    # Test that if reading provenance.jsonl fails with OSError, it raises a proper ValueError
-    def mock_open_with_oserror(*args, **kwargs):
-        raise OSError("File not found")
-    
-    # Test the doc route function directly
-    doc_route = make_doc_route(temp_root)
-    
-    # Temporarily replace open with our mock that raises OSError for provenance file
-    with patch('builtins.open', side_effect=mock_open_with_oserror) as mocked_open:
-        # This should raise ValueError with OSError as cause when trying to open provenance file
-        with pytest.raises(ValueError) as exc_info:
-            doc_route(doc_sha256, {})
-        
-        assert "Error reading provenance" in str(exc_info.value)
-        assert isinstance(exc_info.value.__cause__, OSError)
-    
-    
-def test_error_reading_extracted_document_raises_value_error():
-    """Test that if extracting an extracted document raises OSError/UnicodeError, ValueError is raised with proper chaining."""
-    # Create the temporary directory structure
-    temp_root = Path("C:/Users/trustcore-rdp/agentsearch-hermes/temp_work")
-    raw_dir = temp_root / "raw"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Create an extracted document path but make it unreadable (simulated by not creating it correctly)
-    doc_sha256 = "abc123def456" * 8  # 64 character hex string
-    
-    # Test the doc route function directly
-    doc_route = make_doc_route(temp_root)
-    
-    # Temporarily replace open with our mock that raises OSError when trying to read extracted document 
-    def mock_open_extracted(*args, **kwargs):
-        raise OSError("Document not found")
-    
-    with patch('builtins.open', side_effect=mock_open_extracted) as mocked_open:
-        # This should raise ValueError when trying to read the extracted document
-        with pytest.raises(ValueError) as exc_info:
-            doc_route(doc_sha256, {})
-        
-        assert "Error reading extracted document" in str(exc_info.value)
-        assert isinstance(exc_info.value.__cause__, OSError)
+def _write_provenance(root: Path, lines: list[str]) -> None:
+    (root / "raw").mkdir(parents=True, exist_ok=True)
+    (root / "raw" / "provenance.jsonl").write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+
+
+def test_malformed_unrelated_line_is_skipped_and_valid_match_returned_over_http():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        _write_extracted(root)
+        _write_provenance(root, ["this is not json {{{", json.dumps(PROVENANCE_OK)])
+        server = create_server("127.0.0.1", 0, prefix_routes={"/doc/": make_doc_route(root)})
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}/doc/{SHA}"
+            with urllib.request.urlopen(url, timeout=5) as response:
+                assert response.getcode() == 200
+                body = json.loads(response.read().decode("utf-8"))
+            assert body["doc_sha256"] == SHA
+            assert body["provenance"] == PROVENANCE_OK
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+
+def test_matching_provenance_missing_a_field_raises_value_error_with_key_error_cause():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        _write_extracted(root)
+        incomplete = {k: v for k, v in PROVENANCE_OK.items() if k != "status"}
+        _write_provenance(root, [json.dumps(incomplete)])
+        route = make_doc_route(root)
+        try:
+            route(SHA, {})
+            assert False, "a matching entry missing a required field must raise, not be skipped"
+        except ValueError as exc:
+            assert "Malformed matching provenance entry" in str(exc)
+            assert isinstance(exc.__cause__, KeyError)
+
+
+def _open_raising_for(target: Path, real_open):
+    """A builtins.open replacement that raises OSError only for `target`; everything else is delegated."""
+
+    def fake_open(file, *args, **kwargs):
+        if Path(str(file)) == target:
+            raise OSError("simulated read failure")
+        return real_open(file, *args, **kwargs)
+
+    return fake_open
+
+
+def test_provenance_read_failure_raises_value_error_with_os_error_cause():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        _write_extracted(root)
+        _write_provenance(root, [json.dumps(PROVENANCE_OK)])
+        route = make_doc_route(root)
+        real_open = builtins.open
+        builtins.open = _open_raising_for(root / "raw" / "provenance.jsonl", real_open)
+        try:
+            try:
+                route(SHA, {})
+                assert False, "a provenance read failure must not become provenance: null"
+            except ValueError as exc:
+                assert "Error reading provenance" in str(exc)
+                assert isinstance(exc.__cause__, OSError)
+        finally:
+            builtins.open = real_open
+        # With the real open restored the same request succeeds again.
+        status, body = route(SHA, {})
+        assert status == 200 and body["provenance"] == PROVENANCE_OK
+
+
+def test_extracted_document_read_failure_raises_value_error_with_os_error_cause():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        _write_extracted(root)
+        route = make_doc_route(root)
+        real_open = builtins.open
+        builtins.open = _open_raising_for(root / "extracted" / f"{SHA}.json", real_open)
+        try:
+            try:
+                route(SHA, {})
+                assert False, "an extracted-document read failure must raise, not 404"
+            except ValueError as exc:
+                assert "Error reading extracted document" in str(exc)
+                assert isinstance(exc.__cause__, OSError)
+        finally:
+            builtins.open = real_open
+        status, _ = route(SHA, {})
+        assert status == 200

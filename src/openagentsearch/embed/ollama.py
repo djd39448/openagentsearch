@@ -72,8 +72,8 @@ class OllamaEmbedClient:
         if not isinstance(embedding, list):
             raise ValueError(f"Embedding should be a list, got {type(embedding)}")
             
-        # Validate that the first element is NOT a boolean
-        if len(embedding) > 0 and isinstance(embedding[0], bool):
+        # Reject booleans anywhere in the vector (float(True) would silently become 1.0)
+        if any(isinstance(x, bool) for x in embedding):
             raise ValueError("Invalid embedding: contains boolean values instead of float values")
             
         # Validate that all elements are numbers (excluding booleans now)

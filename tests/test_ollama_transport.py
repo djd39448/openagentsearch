@@ -1,42 +1,49 @@
-import json
-from unittest.mock import MagicMock, patch
+"""The default Ollama transport must read the response inside a context manager (no socket used)."""
 
-import pytest
+import urllib.request
 
 from openagentsearch.embed.ollama import OllamaEmbedClient
 
 
-def test_default_transport_exercises_urllib():
-    """Test that _default_transport calls urllib.request.urlopen correctly and properly closes the response."""
-    # Create a mock response object with the expected interface
-    mock_response = MagicMock()
-    mock_response.read.return_value = b'{"embeddings": [[0.1, 0.2, 0.3]]}'
-    
-    # Mock urllib.request.urlopen to return our mock response
-    with patch('urllib.request.urlopen', return_value=mock_response) as mock_urlopen:
-        client = OllamaEmbedClient("http://localhost:11434")
-        
-        # Call the method directly  
-        result = client._default_transport("http://localhost:11434/api/embeddings")
-        
-        # Verify that urllib.request.urlopen was called correctly
-        mock_urlopen.assert_called_once_with("http://localhost:11434/api/embeddings")
-        
-        # Verify the read() method was invoked on response
-        mock_response.read.assert_called_once()
-        
-        # Verify the result is the expected bytes
-        assert result == b'{"embeddings": [[0.1, 0.2, 0.3]]}'
-        
-        # Verify that __exit__ was called (which means context manager properly closed)
-        # This assertion works only if the mock response object has a context manager interface
-        try:
-            # Attempt to call __exit__ - this should be called by the context manager
-            mock_response.__exit__.assert_called_once()
-        except AttributeError:
-            # If no __exit__ method exists on our mock (which is OK), we're done
-            pass
+class _FakeResponse:
+    """Records the context-manager protocol the way an HTTPResponse would honour it."""
+
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+        self.entered = False
+        self.exited = False
+        self.read_calls = 0
+
+    def __enter__(self):
+        self.entered = True
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.exited = True
+        return False
+
+    def read(self) -> bytes:
+        self.read_calls += 1
+        return self.payload
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+def test_default_transport_reads_within_context_manager_and_closes():
+    fake = _FakeResponse(b'{"embedding": [0.5, 1.0]}')
+    seen = []
+
+    def fake_urlopen(request, *args, **kwargs):
+        seen.append(request)
+        return fake
+
+    real_urlopen = urllib.request.urlopen
+    urllib.request.urlopen = fake_urlopen
+    try:
+        client = OllamaEmbedClient()
+        request = urllib.request.Request("http://localhost:11434/api/embeddings", data=b"{}", method="POST")
+        result = client._default_transport(request)
+    finally:
+        urllib.request.urlopen = real_urlopen
+
+    assert result == b'{"embedding": [0.5, 1.0]}'
+    assert seen == [request]
+    assert fake.entered and fake.exited and fake.read_calls == 1
