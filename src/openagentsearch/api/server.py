@@ -7,12 +7,14 @@ from http.server import BaseHTTPRequestHandler
 from typing import Any
 
 JSONRoute = Callable[[dict[str, list[str]]], tuple[int, dict[str, object]]]
+PrefixJSONRoute = Callable[[str, dict[str, list[str]]], tuple[int, dict[str, object]]]
 
 
 def create_server(
     host: str = "127.0.0.1",
     port: int = 0,
     routes: Mapping[str, JSONRoute] | None = None,
+    prefix_routes: Mapping[str, PrefixJSONRoute] | None = None,
 ) -> http.server.ThreadingHTTPServer:
     """Create a ThreadingHTTPServer with JSON API routes."""
     
@@ -32,15 +34,11 @@ def create_server(
             path = parsed.path
             query_dict = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
             
-            # Look up route
+            # Look up exact route first (exact match takes precedence)
             route_func = default_routes.get(path)
             
-            if route_func is None:
-                self.send_response(404)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": "not_found"}, separators=(",", ":")).encode("utf-8"))
-            else:
+            if route_func is not None:
+                # Exact match found
                 status, data = route_func(query_dict)
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -48,6 +46,36 @@ def create_server(
                 self.send_header("Content-Length", str(len(response_data)))
                 self.end_headers()
                 self.wfile.write(response_data)
+            else:
+                # Try prefix routes (if any are defined)
+                if prefix_routes:
+                    # Find the longest matching prefix
+                    matched_prefix = None
+                    matched_handler = None
+                    
+                    for prefix, handler in prefix_routes.items():
+                        if path.startswith(prefix):
+                            # Keep the longest prefix that matches
+                            if matched_prefix is None or len(prefix) > len(matched_prefix):
+                                matched_prefix = prefix
+                                matched_handler = handler
+                
+                # If we found a matching prefix route, call it
+                if matched_handler:
+                    remainder = path[len(matched_prefix):]
+                    status, data = matched_handler(remainder, query_dict)
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    response_data = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+                    self.send_header("Content-Length", str(len(response_data)))
+                    self.end_headers()
+                    self.wfile.write(response_data)
+                else:
+                    # No exact or prefix route found
+                    self.send_response(404)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "not_found"}, separators=(",", ":")).encode("utf-8"))
         
         def do_HEAD(self) -> None:
             # Parse the path and query parameters
@@ -55,20 +83,45 @@ def create_server(
             path = parsed.path
             query_dict = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
             
-            # Look up route
+            # Look up exact route first (exact match takes precedence)
             route_func = default_routes.get(path)
             
-            if route_func is None:
-                self.send_response(404)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.end_headers()
-            else:
+            if route_func is not None:
+                # Exact match found
                 status, data = route_func(query_dict)
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 response_data = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
                 self.send_header("Content-Length", str(len(response_data)))
                 self.end_headers()
+            else:
+                # Try prefix routes (if any are defined)
+                if prefix_routes:
+                    # Find the longest matching prefix
+                    matched_prefix = None
+                    matched_handler = None
+                    
+                    for prefix, handler in prefix_routes.items():
+                        if path.startswith(prefix):
+                            # Keep the longest prefix that matches
+                            if matched_prefix is None or len(prefix) > len(matched_prefix):
+                                matched_prefix = prefix
+                                matched_handler = handler
+                
+                # If we found a matching prefix route, call it
+                if matched_handler:
+                    remainder = path[len(matched_prefix):]
+                    status, data = matched_handler(remainder, query_dict)
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    response_data = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+                    self.send_header("Content-Length", str(len(response_data)))
+                    self.end_headers()
+                else:
+                    # No exact or prefix route found
+                    self.send_response(404)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
         
         def do_POST(self) -> None:
             # Reject POST requests
