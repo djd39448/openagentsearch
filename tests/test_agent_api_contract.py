@@ -30,7 +30,8 @@ def test_search_contract_captures_validation_fields_and_errors():
     assert c["success"]["status"] == 200
     assert c["success"]["keys"] == ["query", "k", "results"]
     assert c["success"]["nested"]["results"]["keys"] == ["chunk_id", "doc_sha256", "doc_url", "score", "snippet"]
-    assert c["success"]["nested"]["results"]["nullable"] == ["doc_url"]
+    assert c["success"]["nullable"] == ["results[].doc_url"]
+    assert "nullable" not in c["success"]["nested"]["results"]
 
     assert [(e["status"], e["error"]) for e in c["errors"]] == [
         (400, "missing_query"),
@@ -49,7 +50,8 @@ def test_doc_contract_captures_hash_format_fields_and_errors():
     assert c["success"]["status"] == 200
     assert c["success"]["keys"] == ["doc_sha256", "url", "title", "lang", "text", "extracted_at", "provenance"]
     assert c["success"]["nested"]["provenance"]["keys"] == ["url", "fetched_at", "status", "sha256", "robots_allowed"]
-    assert c["success"]["nested"]["provenance"]["nullable"] == ["provenance"]
+    assert c["success"]["nullable"] == ["provenance"]
+    assert "nullable" not in c["success"]["nested"]["provenance"]
 
     assert [(e["status"], e["error"]) for e in c["errors"]] == [
         (400, "invalid_sha256"),
