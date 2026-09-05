@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -10,7 +11,9 @@ class VectorStore:
     """Persist (chunk_id, doc_sha256, vector, text) records to a single SQLite file.
 
     One connection is held per instance and released by close(); a fresh instance opened on
-    the same path with the same dimension reads everything an earlier instance wrote.
+    the same path with the same dimension reads everything an earlier instance wrote. The
+    connection may be used from any thread (the HTTP server answers requests on worker
+    threads); every operation is serialized through a lock.
     """
 
     def __init__(self, path: Union[str, Path], dimension: int) -> None:
@@ -19,8 +22,9 @@ class VectorStore:
 
         self.path = Path(path)
         self.dimension = dimension
-        self._conn: Optional[sqlite3.Connection] = sqlite3.connect(self.path)
-        with self._conn:
+        self._lock = threading.Lock()
+        self._conn: Optional[sqlite3.Connection] = sqlite3.connect(self.path, check_same_thread=False)
+        with self._lock, self._conn:
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS vectors (
@@ -50,19 +54,21 @@ class VectorStore:
                 raise ValueError(f"vector element at index {i} is not numeric: {value!r}")
 
         vector_json = json.dumps([float(x) for x in vector], separators=(",", ":"))
-        conn = self._connection()
-        try:
-            with conn:
-                conn.execute(
-                    "INSERT INTO vectors (chunk_id, doc_sha256, vector_json, text, dimension) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (chunk_id, doc_sha256, vector_json, text, self.dimension),
-                )
-        except sqlite3.IntegrityError as exc:
-            raise ValueError(f"chunk_id '{chunk_id}' already exists") from exc
+        with self._lock:
+            conn = self._connection()
+            try:
+                with conn:
+                    conn.execute(
+                        "INSERT INTO vectors (chunk_id, doc_sha256, vector_json, text, dimension) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (chunk_id, doc_sha256, vector_json, text, self.dimension),
+                    )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"chunk_id '{chunk_id}' already exists") from exc
 
     def count(self) -> int:
-        row = self._connection().execute("SELECT COUNT(*) FROM vectors").fetchone()
+        with self._lock:
+            row = self._connection().execute("SELECT COUNT(*) FROM vectors").fetchone()
         return int(row[0])
 
     def _record(self, row: tuple) -> Dict[str, object]:
@@ -80,21 +86,24 @@ class VectorStore:
         }
 
     def get(self, chunk_id: str) -> Optional[Dict[str, object]]:
-        row = self._connection().execute(
-            "SELECT chunk_id, doc_sha256, vector_json, text, dimension FROM vectors WHERE chunk_id = ?",
-            (chunk_id,),
-        ).fetchone()
+        with self._lock:
+            row = self._connection().execute(
+                "SELECT chunk_id, doc_sha256, vector_json, text, dimension FROM vectors WHERE chunk_id = ?",
+                (chunk_id,),
+            ).fetchone()
         if row is None:
             return None
         return self._record(row)
 
     def load_all(self) -> List[Dict[str, object]]:
-        rows = self._connection().execute(
-            "SELECT chunk_id, doc_sha256, vector_json, text, dimension FROM vectors ORDER BY chunk_id"
-        ).fetchall()
+        with self._lock:
+            rows = self._connection().execute(
+                "SELECT chunk_id, doc_sha256, vector_json, text, dimension FROM vectors ORDER BY chunk_id"
+            ).fetchall()
         return [self._record(row) for row in rows]
 
     def close(self) -> None:
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None

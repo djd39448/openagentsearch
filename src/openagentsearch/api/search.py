@@ -25,8 +25,9 @@ def make_search_route(
         q_param = query_dict.get("q")
         if not q_param or not q_param[0].strip():
             return (400, {"error": "missing_query"})
-        
-        q = q_param[0].strip()
+
+        # Preserve the original non-empty query string; only the emptiness check strips.
+        q = q_param[0]
         
         # Parse k parameter
         k_param = query_dict.get("k")
