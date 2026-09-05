@@ -75,8 +75,10 @@ def create_server(
                     # No exact or prefix route found
                     self.send_response(404)
                     self.send_header("Content-Type", "application/json; charset=utf-8")
+                    response_data = json.dumps({"error": "not_found"}, separators=(",", ":")).encode("utf-8")
+                    self.send_header("Content-Length", str(len(response_data)))
                     self.end_headers()
-                    self.wfile.write(json.dumps({"error": "not_found"}, separators=(",", ":")).encode("utf-8"))
+                    self.wfile.write(response_data)
         
         def do_HEAD(self) -> None:
             # Parse the path and query parameters
@@ -123,6 +125,8 @@ def create_server(
                     # No exact or prefix route found
                     self.send_response(404)
                     self.send_header("Content-Type", "application/json; charset=utf-8")
+                    response_data = json.dumps({"error": "not_found"}, separators=(",", ":")).encode("utf-8")
+                    self.send_header("Content-Length", str(len(response_data)))
                     self.end_headers()
         
         def do_POST(self) -> None:
@@ -130,8 +134,10 @@ def create_server(
             self.send_response(405)
             self.send_header("Allow", "GET, HEAD")
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            response_data = json.dumps({"error": "method_not_allowed"}, separators=(",", ":")).encode("utf-8")
+            self.send_header("Content-Length", str(len(response_data)))
             self.end_headers()
-            self.wfile.write(json.dumps({"error": "method_not_allowed"}, separators=(",", ":")).encode("utf-8"))
+            self.wfile.write(response_data)
         
         def log_message(self, format: str, *args: Any) -> None:
             # Suppress logging to keep tests deterministic

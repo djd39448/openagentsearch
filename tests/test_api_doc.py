@@ -1,6 +1,5 @@
 import json
 import threading
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -67,9 +66,6 @@ def test_doc_endpoint_valid() -> None:
         thread.start()
         
         try:
-            # Wait for server to start
-            time.sleep(0.1)
-            
             port = server.server_address[1]
             url = f"http://127.0.0.1:{port}/doc/{doc_sha256}"
             
@@ -119,9 +115,6 @@ def test_doc_endpoint_unknown_hash() -> None:
         thread.start()
         
         try:
-            # Wait for server to start
-            time.sleep(0.1)
-            
             port = server.server_address[1]
             url = f"http://127.0.0.1:{port}/doc/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
             
@@ -165,9 +158,6 @@ def test_doc_endpoint_invalid_id_formats() -> None:
         thread.start()
         
         try:
-            # Wait for server to start
-            time.sleep(0.1)
-            
             port = server.server_address[1]
             
             for invalid_id in invalid_ids:
@@ -223,9 +213,6 @@ def test_doc_endpoint_no_provenance() -> None:
         thread.start()
         
         try:
-            # Wait for server to start
-            time.sleep(0.1)
-            
             port = server.server_address[1]
             url = f"http://127.0.0.1:{port}/doc/{doc_sha256}"
             
@@ -287,9 +274,6 @@ def test_doc_endpoint_exact_route_wins() -> None:
         thread.start()
         
         try:
-            # Wait for server to start
-            time.sleep(0.1)
-            
             port = server.server_address[1]
             url = f"http://127.0.0.1:{port}/doc/"
             
@@ -323,9 +307,6 @@ def test_healthz_unchanged() -> None:
         thread.start()
         
         try:
-            # Wait for server to start
-            time.sleep(0.1)
-            
             port = server.server_address[1]
             url = f"http://127.0.0.1:{port}/healthz"
             

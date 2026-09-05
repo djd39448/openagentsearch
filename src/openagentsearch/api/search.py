@@ -25,18 +25,29 @@ def make_search_route(
         q_param = query_dict.get("q")
         if not q_param or not q_param[0].strip():
             return (400, {"error": "missing_query"})
-
+        
         # Preserve the original non-empty query string; only the emptiness check strips.
         q = q_param[0]
+        
+        # Check query length (must be <= 512 characters)
+        if len(q) > 512:
+            return (400, {"error": "query_too_long"})
         
         # Parse k parameter
         k_param = query_dict.get("k")
         if not k_param:
             k = 10
         else:
+            # Validate that k is a non-empty string of ASCII digits '0'-'9' only. str.isdigit()
+            # is NOT sufficient: it accepts Unicode digits such as fullwidth "１２".
+            k_str = k_param[0]
+            if not k_str or not all("0" <= c <= "9" for c in k_str):
+                return (400, {"error": "invalid_k"})
+            
+            # Convert to integer and validate range
             try:
-                k = int(k_param[0])
-                if k <= 0:
+                k = int(k_str)
+                if not (1 <= k <= 50):
                     return (400, {"error": "invalid_k"})
             except ValueError:
                 return (400, {"error": "invalid_k"})

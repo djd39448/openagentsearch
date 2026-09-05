@@ -1,6 +1,5 @@
 import json
 import threading
-import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -17,9 +16,6 @@ def test_healthz_get() -> None:
     thread.start()
     
     try:
-        # Wait for server to start
-        time.sleep(0.1)
-        
         port = server.server_address[1]
         url = f"http://127.0.0.1:{port}/healthz"
         
@@ -41,9 +37,6 @@ def test_unknown_path() -> None:
     thread.start()
     
     try:
-        # Wait for server to start
-        time.sleep(0.1)
-        
         port = server.server_address[1]
         url = f"http://127.0.0.1:{port}/nope"
         
@@ -67,9 +60,6 @@ def test_healthz_head() -> None:
     thread.start()
     
     try:
-        # Wait for server to start
-        time.sleep(0.1)
-        
         port = server.server_address[1]
         url = f"http://127.0.0.1:{port}/healthz"
         
@@ -93,9 +83,6 @@ def test_post_method() -> None:
     thread.start()
     
     try:
-        # Wait for server to start
-        time.sleep(0.1)
-        
         port = server.server_address[1]
         url = f"http://127.0.0.1:{port}/healthz"
         
