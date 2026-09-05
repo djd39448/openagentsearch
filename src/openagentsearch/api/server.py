@@ -129,8 +129,8 @@ def create_server(
                     self.send_header("Content-Length", str(len(response_data)))
                     self.end_headers()
         
-        def do_POST(self) -> None:
-            # Reject POST requests
+        def _method_not_allowed(self) -> None:
+            # Never read or execute request content; the body is the exact documented 405 contract.
             self.send_response(405)
             self.send_header("Allow", "GET, HEAD")
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -138,6 +138,18 @@ def create_server(
             self.send_header("Content-Length", str(len(response_data)))
             self.end_headers()
             self.wfile.write(response_data)
+
+        def do_POST(self) -> None:
+            # Reject POST requests
+            self._method_not_allowed()
+
+        def __getattr__(self, name: str):
+            # BaseHTTPRequestHandler answers any method without a do_<METHOD> handler with 501, a 5xx.
+            # Every method other than GET/HEAD (PUT, DELETE, PATCH, OPTIONS, TRACE, arbitrary tokens)
+            # is a documented 405 instead. Only do_* names are resolved here (P6.4 fuzz finding).
+            if name.startswith("do_"):
+                return self._method_not_allowed
+            raise AttributeError(name)
         
         def log_message(self, format: str, *args: Any) -> None:
             # Suppress logging to keep tests deterministic
