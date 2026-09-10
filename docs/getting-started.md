@@ -38,8 +38,10 @@ The important current split:
   Indexing a document whose chunk ids already exist raises `ValueError` before any embedding.
 - `/doc/{sha256}` reads ExtractStore-compatible extracted and provenance files.
 - The offline integration tests deliberately populate both stores using the same document SHA.
-- There is not yet one production crawler command that performs both persistence paths
-  automatically.
+- `openagentsearch.pipeline.ingest.LiveIngester.ingest(url)` performs both persistence paths for one
+  allowlisted URL (raw bytes + provenance line, extracted record, vector rows) after robots.txt,
+  page-budget and rate-limit checks; it follows no links and no redirects, and it has only been
+  exercised against a local test server. There is still no production crawler command.
 
 ## Minimal offline indexing example
 

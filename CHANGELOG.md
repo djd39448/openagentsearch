@@ -7,6 +7,12 @@ package publication, or hosted release exists.
 
 ### Added
 
+- `openagentsearch.pipeline.ingest.LiveIngester`: live ingestion of one URL at a time behind the
+  allowlist, robots.txt (fetched once per host, fail-closed when unavailable), the page budget and
+  the host rate limiter, through `RawStore` provenance, extraction with dedupe, and atomic
+  `index_document()`. Redirects are never followed, bodies are size-bounded, and every refusal
+  is a typed `IngestReport` outcome. There is still no crawl loop, no link following and no
+  production run: it ingests the URLs it is handed.
 - `VectorStore.add_many()` writes a batch of chunk rows in one SQLite transaction (all rows
   or none), and `VectorStore.existing_chunk_ids()` reports which chunk ids are already stored.
 

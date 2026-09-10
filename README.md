@@ -14,7 +14,7 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - Current package version is `0.1.0`.
 - Phases 0-6 of the repository roadmap have been implemented and fixture-tested; future work plainly continues (see [ROADMAP.md](./ROADMAP.md)).
 - There is no production index, hosted service, published release or tag, or user/adoption claim.
-- Live crawler/fetch wiring is intentionally not presented as a production-ready workflow.
+- Live fetch-to-index wiring exists (`LiveIngester`, one URL at a time behind the allowlist, robots.txt, page budget and rate limiter) and is fixture-tested against a local server only; it is intentionally not presented as a production-ready crawl workflow, and there is no link-following loop.
 - The currently demonstrated end-to-end path is offline: caller-supplied HTML through extraction, chunking, injected embeddings, SQLite vector storage, `/search`, and `/doc/{sha256}`.
 
 ## What works today
@@ -25,6 +25,7 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - a local Ollama embedding client for `nomic-embed-text`;
 - SQLite vector persistence with corruption checks;
 - cosine search with deterministic ordering;
+- live single-URL ingestion through `LiveIngester.ingest()` (allowlist -> robots -> budget -> rate limit -> bounded GET -> raw + provenance -> extract + dedupe -> atomic index; no redirects followed);
 - offline indexing composition through `index_document()` / `index_documents()`, atomic per document (a document is either fully indexed or absent; already-indexed documents are refused, not rewritten);
 - a standard-library HTTP API: `/healthz`, `/search`, `/doc/{sha256}`;
 - a minimal stdio MCP subset exposing one `search` tool through the HTTP `/search` endpoint — it supports only the documented subset (`initialize`, `tools/list`, `tools/call`) and is not a claim of complete MCP feature coverage;
