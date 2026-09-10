@@ -25,7 +25,7 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - a local Ollama embedding client for `nomic-embed-text`;
 - SQLite vector persistence with corruption checks;
 - cosine search with deterministic ordering;
-- offline indexing composition through `index_document()` / `index_documents()`;
+- offline indexing composition through `index_document()` / `index_documents()`, atomic per document (a document is either fully indexed or absent; already-indexed documents are refused, not rewritten);
 - a standard-library HTTP API: `/healthz`, `/search`, `/doc/{sha256}`;
 - a minimal stdio MCP subset exposing one `search` tool through the HTTP `/search` endpoint — it supports only the documented subset (`initialize`, `tools/list`, `tools/call`) and is not a claim of complete MCP feature coverage;
 - a frozen synthetic eval set with recall@k;

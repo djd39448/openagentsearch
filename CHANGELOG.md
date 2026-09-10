@@ -7,11 +7,16 @@ package publication, or hosted release exists.
 
 ### Added
 
-No unreleased additions recorded yet.
+- `VectorStore.add_many()` writes a batch of chunk rows in one SQLite transaction (all rows
+  or none), and `VectorStore.existing_chunk_ids()` reports which chunk ids are already stored.
 
 ### Changed
 
-No unreleased changes recorded yet.
+- `index_document()` is now atomic per document: every chunk is embedded before the first
+  write, and the rows land in a single transaction, so an embedder or store failure leaves no
+  half-indexed document. A document whose chunk ids already exist is refused before any
+  embedding call instead of failing on the first duplicate insert. `index_documents()` is
+  unchanged in shape: sequential, stops at the first failure, keeps earlier documents.
 
 ### Fixed
 

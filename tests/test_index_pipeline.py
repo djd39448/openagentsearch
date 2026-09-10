@@ -147,7 +147,7 @@ def test_duplicate_document_fails_without_silent_reindex():
                 index_document(DOC, "u", store=store, embedder=embedder, chunk_size=CHUNK_SIZE, overlap=OVERLAP)
             assert store.count() == count_before
             assert sorted(r["chunk_id"] for r in store.load_all()) == before  # no alternate ids, no duplicates
-            assert len(embedder.calls) == calls_before + 1  # the embed preceding the first duplicate add is not rolled back
+            assert len(embedder.calls) == calls_before  # refused before any embedding call
             with pytest.raises(ValueError):
                 index_document(DOC, "   ", store=store, embedder=embedder, chunk_size=CHUNK_SIZE, overlap=OVERLAP)
             with pytest.raises(ValueError):

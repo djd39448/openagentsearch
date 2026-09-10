@@ -33,7 +33,9 @@ caller-supplied HTML
 
 The important current split:
 
-- `index_document()` writes vector rows only.
+- `index_document()` writes vector rows only, and writes them atomically: all chunks are embedded
+  first, then stored in one transaction, so a failure part-way leaves no rows for that document.
+  Indexing a document whose chunk ids already exist raises `ValueError` before any embedding.
 - `/doc/{sha256}` reads ExtractStore-compatible extracted and provenance files.
 - The offline integration tests deliberately populate both stores using the same document SHA.
 - There is not yet one production crawler command that performs both persistence paths

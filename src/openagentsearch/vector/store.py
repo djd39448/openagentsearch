@@ -5,7 +5,7 @@ import math
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 
 class StoreCorruptionError(ValueError):
@@ -49,7 +49,8 @@ class VectorStore:
             raise RuntimeError(f"VectorStore at {self.path} is closed")
         return self._conn
 
-    def add(self, chunk_id: str, doc_sha256: str, vector: List[float], text: str) -> None:
+    def _vector_json(self, vector: Sequence[float]) -> str:
+        """Validate one caller-supplied vector and return its canonical JSON. Pure: touches no SQL."""
         if len(vector) != self.dimension:
             raise ValueError(
                 f"vector length {len(vector)} does not match the configured dimension {self.dimension}"
@@ -59,8 +60,10 @@ class VectorStore:
                 raise ValueError(f"vector element at index {i} is a boolean, must be numeric")
             if not isinstance(value, (int, float)):
                 raise ValueError(f"vector element at index {i} is not numeric: {value!r}")
+        return json.dumps([float(x) for x in vector], separators=(",", ":"))
 
-        vector_json = json.dumps([float(x) for x in vector], separators=(",", ":"))
+    def add(self, chunk_id: str, doc_sha256: str, vector: List[float], text: str) -> None:
+        vector_json = self._vector_json(vector)
         with self._lock:
             conn = self._connection()
             try:
@@ -72,6 +75,69 @@ class VectorStore:
                     )
             except sqlite3.IntegrityError as exc:
                 raise ValueError(f"chunk_id '{chunk_id}' already exists") from exc
+
+    def add_many(self, records: Iterable[Tuple[str, str, Sequence[float], str]]) -> int:
+        """Insert every (chunk_id, doc_sha256, vector, text) record in ONE SQLite transaction.
+
+        All-or-nothing: every record is validated before the first SQL statement runs, and the
+        insert is a single transaction, so a bad vector, a chunk_id repeated inside the batch, or a
+        chunk_id that already exists in the store leaves the file exactly as it was. Returns the
+        number of rows written (0 for an empty batch, which is not an error).
+        """
+        rows: List[Tuple[str, str, str, str, int]] = []
+        seen: set = set()
+        for record in records:
+            if not isinstance(record, tuple) or len(record) != 4:
+                raise ValueError("each record must be a (chunk_id, doc_sha256, vector, text) tuple")
+            chunk_id, doc_sha256, vector, text = record
+            if not isinstance(chunk_id, str) or not chunk_id:
+                raise ValueError("chunk_id must be a non-empty string")
+            if not isinstance(doc_sha256, str) or not isinstance(text, str):
+                raise ValueError("doc_sha256 and text must be strings")
+            if chunk_id in seen:
+                raise ValueError(f"chunk_id '{chunk_id}' is repeated within the batch")
+            seen.add(chunk_id)
+            rows.append((chunk_id, doc_sha256, self._vector_json(vector), text, self.dimension))
+        if not rows:
+            return 0
+        with self._lock:
+            conn = self._connection()
+            try:
+                with conn:
+                    conn.executemany(
+                        "INSERT INTO vectors (chunk_id, doc_sha256, vector_json, text, dimension) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        rows,
+                    )
+            except sqlite3.IntegrityError as exc:
+                existing = self._existing_ids_locked([row[0] for row in rows])
+                clash = next((row[0] for row in rows if row[0] in existing), None)
+                raise ValueError(f"chunk_id '{clash}' already exists; no rows from the batch were written") from exc
+        return len(rows)
+
+    def _existing_ids_locked(self, chunk_ids: Sequence[str]) -> set:
+        """Caller holds self._lock. Batched so the query stays under SQLite's bound-parameter limit."""
+        conn = self._connection()
+        found: set = set()
+        step = 500
+        for start in range(0, len(chunk_ids), step):
+            batch = list(chunk_ids[start : start + step])
+            marks = ",".join("?" for _ in batch)
+            for (chunk_id,) in conn.execute(f"SELECT chunk_id FROM vectors WHERE chunk_id IN ({marks})", batch):
+                found.add(chunk_id)
+        return found
+
+    def existing_chunk_ids(self, chunk_ids: Iterable[str]) -> set:
+        """Return the subset of `chunk_ids` already present in the store. Read-only; nothing is
+        deserialized, so a corrupt row still counts as present."""
+        ids = list(chunk_ids)
+        for chunk_id in ids:
+            if not isinstance(chunk_id, str):
+                raise ValueError("chunk ids must be strings")
+        if not ids:
+            return set()
+        with self._lock:
+            return self._existing_ids_locked(ids)
 
     def count(self) -> int:
         """Physical row count (pure SQL). Rows are not deserialized or validated here, so a
