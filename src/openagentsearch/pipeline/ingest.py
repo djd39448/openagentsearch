@@ -86,14 +86,18 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def urllib_fetch(url: str, timeout_s: float, max_bytes: int, user_agent: str) -> FetchResponse:
+def urllib_fetch(
+    url: str, timeout_s: float, max_bytes: int, user_agent: str, *, accept: str = "text/html"
+) -> FetchResponse:
     """Standard-library GET that never follows a redirect and reads at most max_bytes + 1 bytes.
 
     A 3xx/4xx/5xx answer is returned as a FetchResponse with that status (body included, bounded);
-    only transport failures raise (urllib.error.URLError, socket.timeout, OSError).
+    only transport failures raise (urllib.error.URLError, socket.timeout, OSError). `accept` is the
+    Accept header sent (default `text/html`); JSON endpoints such as the GitHub tree API answer 415
+    to `text/html`, so callers fetching JSON pass their media type explicitly.
     """
     opener = urllib.request.build_opener(_NoRedirect)
-    request = urllib.request.Request(url, headers={"User-Agent": user_agent, "Accept": "text/html"})
+    request = urllib.request.Request(url, headers={"User-Agent": user_agent, "Accept": accept})
     try:
         response = opener.open(request, timeout=timeout_s)
     except urllib.error.HTTPError as answered:

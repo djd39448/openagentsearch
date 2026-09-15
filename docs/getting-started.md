@@ -40,8 +40,10 @@ The important current split:
 - The offline integration tests deliberately populate both stores using the same document SHA.
 - `openagentsearch.pipeline.ingest.LiveIngester.ingest(url)` performs both persistence paths for one
   allowlisted URL (raw bytes + provenance line, extracted record, vector rows) after robots.txt,
-  page-budget and rate-limit checks; it follows no links and no redirects, and it has only been
-  exercised against a local test server. There is still no production crawler command.
+  page-budget and rate-limit checks; it follows no links itself and never follows a redirect.
+  `openagentsearch.pipeline.crawl` (see "Bounded crawl" below) is the link-following loop built on
+  top of it; it too has only been exercised against local test servers, and there is still no
+  production crawler command run against the live internet.
 
 ## Minimal offline indexing example
 
@@ -137,6 +139,52 @@ failure (`SourceIndexReport.failed`/`.failures` record what went wrong per docum
 can serve the result. `VectorStore.manifest_kind_counts()` and the store-aware `/healthz`'s
 `"kinds"` key report manifest counts broken out per adapter `kind` (`"room"`, `"github_doc"`,
 `"github_issue"`, `"site"`).
+
+## Bounded crawl
+
+`openagentsearch.pipeline.crawl` (`python -m openagentsearch.pipeline.crawl`) is a config-driven,
+bounded breadth-first crawl loop built on top of `LiveIngester`: it runs the four source adapters
+above once, then follows links starting from a config's seed URLs, but ONLY inside hosts that
+config allowlists and, where a host declares `path_prefixes`, only inside those paths. Politeness
+(robots.txt, per-host rate limiting, bounded GET, no redirects) is entirely `LiveIngester`'s job;
+this loop decides what to fetch next and when to stop.
+
+```
+python -m openagentsearch.pipeline.crawl --allowlist config/flop.yaml --root ./crawl-data \
+    --db path/to/vectors.sqlite --embedder keyword
+```
+
+Required flags: `--allowlist PATH` (also accepted as `--config PATH`; the crawl config YAML, see
+`config/flop.yaml`), `--root DIR`, `--db PATH`, `--embedder {ollama,keyword}`. The live FLOP run
+against `config/flop.yaml`'s real hosts requires the operator's explicit go, per host, before every
+run -- committing that file does not authorize running it.
+
+Each host has a page budget (`hosts.<host>.max_pages` in the config, or `--max-pages-per-host N` to
+override every host's budget for this invocation); the first URL that would exceed it is refused
+and a `STOP-<host>` marker file is written under `--root` -- `openagentsearch.fetch.budget.PageBudget`,
+unchanged from package A0/A1. The loop's own frontier/visited/per-host-budget-progress state is
+checkpointed atomically (write-to-temp + `os.replace`) to `<root>/crawl-state.json` every
+`--checkpoint-every` attempted pages (default 25) and once more on exit, success or exception.
+
+`--resume` continues a previous run from that state file: it requires the file to exist (exit 2,
+with a JSON error line on stderr, otherwise), refuses to resume against a config that has changed
+since the state was saved (a `config_sha256` mismatch -- also exit 2; this check is NOT affected by
+`--max-pages-per-host`, so raising a host's cap on a resumed run is exactly what that flag is for),
+and reconstructs each host's remaining budget as `max_pages - <pages already counted against that
+host's budget>`; nothing already visited is re-fetched. `CrawlReport` (the one compact JSON line
+printed to stdout, and written to `<root>/crawl-report.json`) reports the crawl's cumulative
+progress as of this invocation -- `pages_attempted`, `outcomes`, `indexed` and `hosts_stopped` carry
+forward across resumed runs the same way the persisted state does.
+
+Other flags: `--skip-sources` (crawl stage only), `--rooms-jsonl PATH` (overrides the config's
+`sources.rooms_jsonl`), `--gh-runner-disabled` (skip the GitHub issues source instead of shelling
+out to `gh`), `--seed URL` (repeatable; adds seeds beyond the config's own for a fresh run only --
+`--resume` seeds its frontier from `crawl-state.json`, so `--seed` is silently ignored, and kept out
+of the `config_sha256` fingerprint, on a `--resume` invocation), `--min-interval SECONDS`
+(default `1.0`, per-host rate limit), `--dimension N`. Exit codes: `0` on a normal stop (frontier
+exhausted or every host's budget exhausted), `2` for a bad `--resume` precondition (see above), `1`
+for any other failure during the crawl (for example an embedder outage) -- either way, one JSON
+`{"error": "..."}` line goes to stderr.
 
 ## HTTP API
 
@@ -258,8 +306,10 @@ Neither script exposes a command-line entry point today; call the functions from
 
 ## Known limitations
 
-- No live crawl-to-index daemon: fetching, extraction persistence and vector indexing are separate
-  building blocks that the caller composes.
+- No scheduler/daemon: `openagentsearch.pipeline.crawl` composes fetching, extraction persistence
+  and vector indexing into one bounded, resumable run, but it is a one-shot process the operator
+  starts (and, on `--resume`, restarts) by hand -- nothing here schedules or supervises repeated
+  runs.
 - No production index and no hosted service.
 - `python -m openagentsearch.api.server` is a development/demo launcher, not a production process
   supervisor: no daemonization, no PID file, no log rotation, no automatic restart, and no

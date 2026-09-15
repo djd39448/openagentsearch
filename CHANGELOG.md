@@ -108,6 +108,44 @@ package publication, or hosted release exists.
   a moving finalized head during iteration can never widen the window one run ingests against.
   `ListFactSink` is the in-memory, duplicate-rejecting sink used by its tests. No RPC, no
   persistence, and no reorg handling below finality yet — see the module docstring.
+- `config/flop.yaml` + `openagentsearch.pipeline.crawlconfig`: the bounded crawl loop's config file
+  and its loader. `load_crawl_config(path) -> CrawlConfig` validates a YAML file into frozen
+  `HostRule` (allowlisted host, per-host page budget, optional URL path prefixes),
+  `GitHubDocsSource`, `GitHubIssuesSource`, and the top-level `CrawlConfig` (hosts, seeds, and the
+  four FLOP source descriptors from package A3) -- every dataclass validates itself in
+  `__post_init__` and every rejection is a `ValueError` naming the field. A host that looks like an
+  IP literal is accepted only as `"127.0.0.1"` (the crawl loop's own test-server host); every seed
+  must be `https://` on an allowlisted host, with the same `127.0.0.1` exception for tests.
+  `allowlist_entries(config)` reshapes `config.hosts` into `AllowlistEntry` rows for `LiveIngester`;
+  `config_sha256(config)` is the deterministic fingerprint (hosts/seeds/sources only, never a CLI
+  override) `--resume` checks against.
+- `openagentsearch.extract.links`: `extract_links(html, base_url, *, max_links=200) -> list[str]`,
+  a pure `html.parser`-based `<a href>` collector -- resolves each href against `base_url`,
+  lowercases scheme and host, drops the fragment, skips `mailto:`/`javascript:` and any non-
+  `http(s)` scheme, and dedupes by the normalized URL in first-seen order. `url_allowed(url, rules:
+  Mapping[str, HostRule]) -> bool` is the matching pure allow-check: `http`/`https`, host present
+  in `rules`, and (when that host declares `path_prefixes`) the path starts with one of them.
+- `openagentsearch.pipeline.crawl` (`python -m openagentsearch.pipeline.crawl`): the bounded,
+  resumable crawl loop. `run_crawl(config, *, root, store, embedder, chunk_size, overlap, resume=
+  False, checkpoint_every=25, min_interval_s=1.0, fetcher=None, clock=time.time, sleep=None,
+  skip_sources=False, rooms_jsonl=None, gh_runner=None, max_pages_override=None) -> CrawlReport`
+  first runs the four source adapters (unless `skip_sources`) through `index_source_documents()`,
+  recording an `AdapterStats` per adapter and never treating a source failure as fatal, then does a
+  breadth-first crawl over `LiveIngester.ingest()` starting from `config.seeds`, following only
+  links `extract_links()` finds and `url_allowed()` accepts. `CrawlState` (frontier, visited,
+  per-host budget progress, and a `config_sha256` fingerprint) is checkpointed atomically
+  (write-to-temp + `os.replace`) to `<root>/crawl-state.json` every `checkpoint_every` attempted
+  pages and once more on exit, success or exception (an exception from ingesting -- for example an
+  embedder failure -- still checkpoints before propagating unchanged). `--resume` requires that
+  file, refuses one saved under a different config (`config_sha256` mismatch, NOT affected by
+  `--max-pages-per-host`), and reconstructs each host's remaining budget from what was already
+  counted against it, removing a stale `STOP-<host>` marker when the (possibly raised) budget has
+  room again. The CLI (`--allowlist`/`--config`, `--root`, `--db`, `--embedder` required;
+  `--max-pages-per-host`, `--resume`, `--checkpoint-every`, `--min-interval`, `--skip-sources`,
+  `--rooms-jsonl`, `--gh-runner-disabled`, `--seed` repeatable, `--dimension`) prints one compact
+  JSON `CrawlReport` line to stdout and writes it to `<root>/crawl-report.json`, exiting `0` on a
+  normal stop, `2` for a bad `--resume` precondition (JSON error line to stderr), `1` for any other
+  failure (same error-line shape).
 
 ### Changed
 

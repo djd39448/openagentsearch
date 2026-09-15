@@ -1,0 +1,36 @@
+# Bounded crawl config for the FLOP-related hosts (openagentsearch.pipeline.crawl).
+#
+# Committing this file does NOT authorize a live run against these hosts. Running it for real
+# (python -m openagentsearch.pipeline.crawl --allowlist config/flop.yaml ...) against the public
+# internet still requires the operator's explicit go, per host, before every run.
+#
+# Commit pins below are the real heads of each repository as of 2026-09-15 (verified via
+# `gh api`); the loader (openagentsearch.pipeline.crawlconfig) rejects any commit value that is
+# not exactly 40 lowercase hex characters.
+
+hosts:
+  raw.githubusercontent.com:
+    max_pages: 100
+    path_prefixes: ["/flop-labs/"]
+  flop.finance:
+    max_pages: 60
+  technocore.chat:
+    max_pages: 25
+    path_prefixes: ["/llms.txt", "/docs", "/r/builders"]
+
+seeds:
+  - https://flop.finance/intro/
+  - https://flop.finance/intro/yellowpaper/
+
+sources:
+  rooms_jsonl: null  # operator supplies the path on the command line (--rooms-jsonl)
+  github_docs:
+    - {owner: flop-labs, repo: yellowpaper, commit: cb3cbf97a346ff85aca6dba5e924434270ca672c}
+    - {owner: flop-labs, repo: tclk, commit: 5cc4ab93efbc8999a3a7e1471b639deca25998ea}
+    - {owner: flop-labs, repo: technocore-chat, commit: 20a4457b89ba11254f4aa48217b066884a148d98}
+    - {owner: flop-labs, repo: technocore-sonnet-challenge, commit: 81761a462bab4d2389e16f995ff9f91688654afc}
+  github_issues:
+    - {owner: flop-labs, repo: yellowpaper}
+    - {owner: flop-labs, repo: technocore-chat}
+  site_pages:
+    - https://flop.finance/intro/

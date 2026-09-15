@@ -14,7 +14,7 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - Current package version is `0.1.0`.
 - Phases 0-6 of the repository roadmap have been implemented and fixture-tested; future work plainly continues (see [ROADMAP.md](./ROADMAP.md)).
 - There is no production index, hosted service, published release or tag, or user/adoption claim.
-- Live fetch-to-index wiring exists (`LiveIngester`, one URL at a time behind the allowlist, robots.txt, page budget and rate limiter) and is fixture-tested against a local server only; it is intentionally not presented as a production-ready crawl workflow, and there is no link-following loop.
+- Live fetch-to-index wiring exists (`LiveIngester`, one URL at a time behind the allowlist, robots.txt, page budget and rate limiter) and is fixture-tested against a local server only; it is intentionally not presented as a production-ready crawl workflow. A bounded, config-driven link-following loop now exists on top of it (see "What works today" below), but it is still a one-shot bounded run, not a daemon.
 - The currently demonstrated end-to-end path is offline: caller-supplied HTML through extraction, chunking, injected embeddings, SQLite vector storage, `/search`, and `/doc/{sha256}`.
 
 ## What works today
@@ -43,6 +43,11 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   of site pages behind a host allowlist; every adapter takes an injected fetcher or a file path, so
   none of them touches the network on its own, and `/healthz` additionally reports manifest counts
   by source kind (`"kinds"`);
+- a bounded, config-driven crawl loop (`python -m openagentsearch.pipeline.crawl`,
+  `openagentsearch.pipeline.crawl.run_crawl`): starting from configured seed URLs, it follows links
+  only inside allowlisted hosts and, where declared, their path prefixes, enforcing a per-host page
+  budget with `STOP-<host>` markers, checkpointing its frontier/visited state atomically, and
+  resuming a previous run without re-fetching what it already visited;
 - a minimal stdio MCP subset exposing one `search` tool through the HTTP `/search` endpoint — it supports only the documented subset (`initialize`, `tools/list`, `tools/call`) and is not a claim of complete MCP feature coverage;
 - a static index export (`openagentsearch.pipeline.publish.build_static_index()`, CLI
   `python -m openagentsearch.pipeline.publish --db PATH --root DIR --out DIR`): two GET-only
@@ -58,11 +63,12 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 
 ## What is not wired yet
 
-- no turnkey live crawl -> persistence -> index daemon;
+- no scheduler/daemon: the crawl is a one-shot bounded run; no public/production index yet;
 - no message-text corpus from technocore.chat rooms -- `RoomDirectoryAdapter` reads the room
   *directory* only (counts, timestamps, a classification hint), never message bodies;
-- no crawl loop that discovers URLs on its own yet (planned as package A4); the site-pages adapter
-  is for an explicit, operator-supplied URL list, not link-following;
+- the site-pages adapter (`SitePagesAdapter`) remains for an explicit, operator-supplied URL list
+  outside the crawl loop, with no robots.txt/budget/rate-limit handling of its own -- that policy
+  lives in the crawl loop and `LiveIngester`, not in this adapter;
 - no public/production index — the static export is a local file-writing tool the operator runs
   and then publishes themselves (for example to `gh-pages`); this repository does not publish it;
 - superseded documents' chunk rows are still not removed from the vector store, and
