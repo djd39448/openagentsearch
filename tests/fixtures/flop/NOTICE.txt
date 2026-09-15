@@ -1,0 +1,13 @@
+wire-format-v1.json
+===================
+
+Source:  https://github.com/flop-labs/yellowpaper/blob/cb3cbf97a346ff85aca6dba5e924434270ca672c/evidence/wire-format-v1.json
+Commit:  cb3cbf97a346ff85aca6dba5e924434270ca672c (2026-09-11)
+sha256:  80d4a7e70f984342eb474ae5285a17a6b9348eca887e1689b15e641922051d93
+Size:    24,213 bytes, unmodified
+
+Copyright (c) 2026 FLOP Labs. Redistributed under the Creative Commons Attribution 4.0
+International License (CC BY 4.0), the license stated in that repository's LICENSE file.
+This copy is a verbatim test fixture for openagentsearch.flop.wire; it is not part of the
+openagentsearch package's own MIT-licensed code. Regenerate from the source above if it
+changes; tests pin the sha256 and fail loudly on any difference.

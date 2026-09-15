@@ -1,0 +1,3 @@
+# Byte-exact test fixtures: never EOL-normalized on checkout (their sha256 is pinned by tests).
+tests/fixtures/flop/wire-format-v1.json -text
+tests/fixtures/flop/NOTICE.txt -text

@@ -146,6 +146,21 @@ package publication, or hosted release exists.
   JSON `CrawlReport` line to stdout and writes it to `<root>/crawl-report.json`, exiting `0` on a
   normal stop, `2` for a bad `--resume` precondition (JSON error line to stderr), `1` for any other
   failure (same error-line shape).
+- `openagentsearch.flop.wire`: pure, fail-closed decoders for the public FLOP v1 wire objects
+  (Appendix F) — `scale` (a bounded `Reader` plus `Compact<u32>`/fixed-integer/`bool`/`H256`
+  primitives), `hashes` (corpus-verified `blake2_256`/`sha256` preimage builders for `channel_id`,
+  `task_hash`, `decode_policy_hash`, `report_data`, leaf hashes V0-V3, and Merkle node/root
+  recomputation), `objects` (`DataRef`, `DecodePolicy`, `ValidatorAttestation`, `VerifiedTurn` with
+  its V0-V3 self-consistency rule, `ReceiptV1`/`LegacyReceipt`, and the FCC4 DA transcript
+  container), `verify` (a signature seam that reports `not_verified` unless a real sr25519
+  verifier is injected — none exists in the Python standard library), and `settle`
+  (`verified_work_from_turns`: pure settlement arithmetic — Merkle membership, duplicate-turn and
+  u128 `g_n`-overflow checks, per R11.2a). Verified end to end against the vendored public
+  `tests/fixtures/flop/wire-format-v1.json` corpus (CC BY 4.0, commit `cb3cbf97a346f`, sha256
+  pinned and re-checked on every test run). See [docs/flop-wire.md](./docs/flop-wire.md) for the
+  reason vocabulary, the hash table, and the one documented corpus discrepancy
+  (`wrong_path_orientation`'s mutation is provably undetectable by any correct Merkle-walk
+  implementation for that specific vector — see the doc for why).
 
 ### Changed
 

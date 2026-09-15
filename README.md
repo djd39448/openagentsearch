@@ -60,10 +60,15 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - a process-level contribution sandbox and fail-closed contribution sandbox result recording;
 - a finality-gated chain-fact ingester seam (`openagentsearch.flop.chain`): facts above the
   finalized head are deferred, never indexed; `NullChainSource` until a public RPC exists.
+- FLOP v1 wire-format decoders (`openagentsearch.flop.wire`): `DataRef`, `DecodePolicy`,
+  `VerifiedTurn` (leaf versions V0-V3), the FCC4 DA transcript container, and the agent receipt and
+  `ValidatorAttestation`, verified against the public `wire-format-v1.json` corpus; signature
+  checks report `not_verified` without an injected sr25519 verifier (none exists in the Python
+  standard library). See [docs/flop-wire.md](./docs/flop-wire.md).
 
 ## What is not wired yet
 
-- no scheduler/daemon: the crawl is a one-shot bounded run; no public/production index yet;
+- no scheduler/daemon: the crawl is a one-shot bounded run;
 - no message-text corpus from technocore.chat rooms -- `RoomDirectoryAdapter` reads the room
   *directory* only (counts, timestamps, a classification hint), never message bodies;
 - the site-pages adapter (`SitePagesAdapter`) remains for an explicit, operator-supplied URL list
@@ -81,7 +86,10 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   `NullChainSource` and the test-only `StaticChainSource`);
 - no persisted chain facts (`ingest_finalized_facts` hands accepted facts to an in-memory
   `FactSink`; nothing writes them to disk, the vector store, or the index manifest);
-- no reputation ledger yet.
+- no reputation ledger yet;
+- no sr25519 verification (`openagentsearch.flop.wire` decodes and recomputes FLOP v1 wire
+  objects, but every signature check reports `not_verified` unless the caller injects a real
+  sr25519 verifier).
 
 ## Quick start
 
