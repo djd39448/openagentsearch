@@ -168,12 +168,23 @@ class GitHubRepoDocsAdapter:
             if path.endswith(_MARKDOWN_SUFFIX):
                 file_title = _first_h1_or_none(text)
                 title = file_title if file_title is not None else path
+                slug_counts: dict[str, int] = {}
                 for index, (heading, body) in enumerate(split_markdown_sections(text)):
                     if not body:
                         # e.g. the file's leading (heading-less) part when it starts right at a
                         # heading with no preamble text; nothing for a SourceDoc to carry.
                         continue
-                    url = blob_url + (f"#{slugify_heading(heading)}" if heading else "")
+                    # Repeated headings in one file ("### Added" in every CHANGELOG entry) must not
+                    # share a URL: with identical URLs each later section superseded the earlier
+                    # one in the manifest. GitHub's own anchors disambiguate as slug, slug-1, slug-2.
+                    if heading:
+                        base_slug = slugify_heading(heading)
+                        seen = slug_counts.get(base_slug, 0)
+                        slug_counts[base_slug] = seen + 1
+                        slug = base_slug if seen == 0 else f"{base_slug}-{seen}"
+                        url = f"{blob_url}#{slug}"
+                    else:
+                        url = blob_url
                     provenance = tuple(
                         sorted(
                             {
