@@ -19,11 +19,18 @@ record is removed again so a retry is not blocked by its own failed attempt. The
 is the same everywhere: RawStore hashes the body bytes, index_document() hashes the decoded
 text re-encoded as UTF-8, and the decode is strict, so the two hashes are asserted equal.
 
+A `refused` manifest row is recorded (via `store.record_manifest`) for the three outcomes where
+a full body was actually received and a real content hash exists to key it by (`deduplicated`,
+`refused_content_type`, `refused_not_utf8`); every pre-fetch refusal, `refused_too_large`, and
+`already_indexed` write nothing to the manifest, and `indexed` writes its manifest row through
+index_document() itself.
+
 No production crawl loop lives here: this module ingests URLs it is handed, one at a time,
 and reports what happened to each. Nothing here spends money, follows a link, or opens a
 socket to a host outside the allowlist.
 """
 
+import hashlib
 import time
 import urllib.error
 import urllib.request
@@ -39,6 +46,7 @@ from openagentsearch.fetch.budget import PageBudget
 from openagentsearch.fetch.ratelimit import HostRateLimiter
 from openagentsearch.fetch.rawstore import RawStore
 from openagentsearch.fetch.robots import RobotsPolicy
+from openagentsearch.index.manifest import ManifestEntry
 from openagentsearch.pipeline.index import Embedder, index_document
 from openagentsearch.vector.store import VectorStore
 
@@ -125,6 +133,7 @@ class LiveIngester:
         fetcher: Optional[Fetcher] = None,
         clock: Callable[[], float] = time.time,
         sleep: Optional[Callable[[float], None]] = None,
+        source_kind: str = "html",
     ) -> None:
         if not allowlist:
             raise ValueError("allowlist must not be empty: an ingester with no hosts has nothing it may fetch")
@@ -147,6 +156,7 @@ class LiveIngester:
         self.user_agent = user_agent
         self.fetcher: Fetcher = fetcher or urllib_fetch
         self.clock = clock
+        self.source_kind = source_kind
         self.raw = RawStore(self.root)
         self.extracted = DedupingExtractStore(self.root)
         self.budget = PageBudget(self.root, dict(self.hosts))
@@ -174,6 +184,25 @@ class LiveIngester:
                 policy = None
         self._robots[host] = policy
         return policy
+
+    def _record_refused(
+        self, doc_sha256: str, url: str, reason: str, extracted_sha256: str
+    ) -> None:
+        """Write a `refused` manifest row for a document whose full body was received (a real
+        content hash exists) but that was not indexed: `deduplicated`, `refused_content_type` and
+        `refused_not_utf8` only."""
+        self.store.record_manifest(
+            ManifestEntry(
+                doc_sha256=doc_sha256,
+                source_url=url,
+                status="refused",
+                reason=reason,
+                indexed_at=self.clock(),
+                chunk_count=0,
+                extracted_sha256=extracted_sha256,
+                source_kind=self.source_kind,
+            )
+        )
 
     # -- ingestion ----------------------------------------------------------------------------
 
@@ -208,21 +237,29 @@ class LiveIngester:
             return IngestReport(url, host, "refused_too_large", status=200, detail=f"body exceeds max_bytes {self.max_bytes}")
         media = answer.content_type.split(";", 1)[0].strip().lower()
         if media and media != "text/html":
-            return IngestReport(url, host, "refused_content_type", status=200, detail=f"Content-Type {media!r}")
+            detail = f"Content-Type {media!r}"
+            self._record_refused(hashlib.sha256(answer.body).hexdigest(), url, detail, "")
+            return IngestReport(url, host, "refused_content_type", status=200, detail=detail)
         try:
             html = answer.body.decode("utf-8")
         except UnicodeDecodeError as exc:
-            return IngestReport(url, host, "refused_not_utf8", status=200, detail=str(exc))
+            detail = str(exc)
+            self._record_refused(hashlib.sha256(answer.body).hexdigest(), url, detail, "")
+            return IngestReport(url, host, "refused_not_utf8", status=200, detail=detail)
 
         doc_sha256 = self.raw.put(url, answer.body, answer.status, True, fetched_at)
         extracted = extract(html)
         extracted_path = self.extracted.put(doc_sha256, url, extracted, self.clock())
         if extracted_path is None:
+            extracted_sha256 = hashlib.sha256(extracted["text"].encode("utf-8")).hexdigest()
+            dedup_reason = "deduplicated: extracted text already stored under another document"
+            self._record_refused(doc_sha256, url, dedup_reason, extracted_sha256)
             return IngestReport(url, host, "deduplicated", status=200, doc_sha256=doc_sha256,
                                 detail="extracted text already stored under another document")
         try:
             report = index_document(
-                html, url, store=self.store, embedder=self.embedder, chunk_size=self.chunk_size, overlap=self.overlap
+                html, url, store=self.store, embedder=self.embedder, chunk_size=self.chunk_size,
+                overlap=self.overlap, source_kind=self.source_kind,
             )
         except ValueError as exc:
             if "already indexed" in str(exc):

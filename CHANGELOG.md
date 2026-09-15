@@ -15,6 +15,18 @@ package publication, or hosted release exists.
   production run: it ingests the URLs it is handed.
 - `VectorStore.add_many()` writes a batch of chunk rows in one SQLite transaction (all rows
   or none), and `VectorStore.existing_chunk_ids()` reports which chunk ids are already stored.
+- `openagentsearch.index.manifest`: a new module with the index manifest itself — `ManifestEntry`,
+  `ManifestCounts`, `ManifestCorruptionError`, `STATUSES`, and the pure `ensure_manifest_table` /
+  `write_manifest_entry` / `read_manifest_counts` / `read_manifest_entry` / `read_manifest_entries`
+  functions that operate on a caller-supplied `sqlite3.Connection`.
+- `VectorStore.add_many(..., manifest=...)` upserts a manifest row in the same transaction as the
+  vector rows it writes; `VectorStore.record_manifest()`, `.manifest_counts()`, `.manifest_entry()`
+  and `.manifest_entries()` read and write the manifest table directly. `VectorStore` now creates
+  the manifest table (if missing) whenever it opens.
+- `make_healthz_route(store)` (`openagentsearch.api.healthz`): an opt-in `/healthz` route that
+  reports `{"status": "ok", "index": {"indexed": N, "failed": N, "superseded": N, "refused": N}}`.
+  The default `/healthz` registered by `create_server()` is unchanged and stays byte-identical to
+  `{"status":"ok"}`.
 
 ### Changed
 
@@ -23,6 +35,13 @@ package publication, or hosted release exists.
   half-indexed document. A document whose chunk ids already exist is refused before any
   embedding call instead of failing on the first duplicate insert. `index_documents()` is
   unchanged in shape: sequential, stops at the first failure, keeps earlier documents.
+- `index_document()` / `index_documents()` / `LiveIngester` now take a `source_kind: str = "html"`
+  parameter, recorded on the manifest row. `index_document()` also takes an optional
+  `indexed_at: float | None = None` (default: `time.time()` at write time). `IndexReport` gains
+  `source_kind: str` and `indexed_at: float` (appended at the end of the dataclass, after
+  `chunk_ids`). A failure inside `index_document()` (from extraction through the final write) is
+  now recorded as a `failed` manifest row before the original exception is re-raised unchanged;
+  the "already indexed" refusal is not a failure and still writes nothing.
 
 ### Fixed
 

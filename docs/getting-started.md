@@ -134,6 +134,11 @@ registered. The third argument to `make_search_route` resolves a document SHA-25
 `None`). See [docs/agent-api.md](agent-api.md) for the exact `/search` and `/doc/{sha256}` contract
 rather than duplicating every response field here.
 
+A store-aware `/healthz` is available but not registered by default: pass
+`routes={"/healthz": make_healthz_route(store), ...}` (`openagentsearch.api.healthz`) to
+`create_server()` and the route reports `{"status": "ok", "index": {"indexed": N, "failed": N,
+"superseded": N, "refused": N}}`, the same counts shape as `VectorStore.manifest_counts()`.
+
 ## MCP search wrapper
 
 Portable command, given a running local HTTP server:

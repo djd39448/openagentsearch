@@ -28,6 +28,9 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - live single-URL ingestion through `LiveIngester.ingest()` (allowlist -> robots -> budget -> rate limit -> bounded GET -> raw + provenance -> extract + dedupe -> atomic index; no redirects followed);
 - offline indexing composition through `index_document()` / `index_documents()`, atomic per document (a document is either fully indexed or absent; already-indexed documents are refused, not rewritten);
 - a standard-library HTTP API: `/healthz`, `/search`, `/doc/{sha256}`;
+- an index manifest: a SQLite table next to the vectors recording `indexed` / `failed` /
+  `superseded` / `refused` per document hash, written in the same transaction as the vector rows;
+  and a store-aware `/healthz` (`make_healthz_route`) that reports counts by status;
 - a minimal stdio MCP subset exposing one `search` tool through the HTTP `/search` endpoint — it supports only the documented subset (`initialize`, `tools/list`, `tools/call`) and is not a claim of complete MCP feature coverage;
 - a frozen synthetic eval set with recall@k;
 - a reproducible offline benchmark;
@@ -37,6 +40,7 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 
 - no turnkey live crawl -> persistence -> index daemon;
 - no public/production index;
+- no published/static manifest export yet; superseded documents' chunk rows are not removed;
 - no HTTP server CLI (the API server is a Python-library integration surface);
 - no automated PR/intake/merge/sign-off workflow;
 - no OS/container-grade sandbox (the sandbox is process-level isolation only);

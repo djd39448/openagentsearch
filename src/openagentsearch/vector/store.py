@@ -7,6 +7,16 @@ import threading
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
+from openagentsearch.index.manifest import (
+    ManifestCounts,
+    ManifestEntry,
+    ensure_manifest_table,
+    read_manifest_counts,
+    read_manifest_entries,
+    read_manifest_entry,
+    write_manifest_entry,
+)
+
 
 class StoreCorruptionError(ValueError):
     """A persisted row is invalid (malformed vector_json, wrong shape or type, non-finite value,
@@ -43,6 +53,7 @@ class VectorStore:
                 )
                 """
             )
+            ensure_manifest_table(self._conn)
 
     def _connection(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -76,13 +87,22 @@ class VectorStore:
             except sqlite3.IntegrityError as exc:
                 raise ValueError(f"chunk_id '{chunk_id}' already exists") from exc
 
-    def add_many(self, records: Iterable[Tuple[str, str, Sequence[float], str]]) -> int:
-        """Insert every (chunk_id, doc_sha256, vector, text) record in ONE SQLite transaction.
+    def add_many(
+        self,
+        records: Iterable[Tuple[str, str, Sequence[float], str]],
+        *,
+        manifest: Optional[ManifestEntry] = None,
+    ) -> int:
+        """Insert every (chunk_id, doc_sha256, vector, text) record in ONE SQLite transaction, and,
+        when `manifest` is given, upsert that manifest row in the SAME transaction — a failed
+        insert rolls back the manifest row too.
 
         All-or-nothing: every record is validated before the first SQL statement runs, and the
-        insert is a single transaction, so a bad vector, a chunk_id repeated inside the batch, or a
-        chunk_id that already exists in the store leaves the file exactly as it was. Returns the
-        number of rows written (0 for an empty batch, which is not an error).
+        insert (with the manifest upsert, when given) is a single transaction, so a bad vector, a
+        chunk_id repeated inside the batch, or a chunk_id that already exists in the store leaves
+        the file exactly as it was. Returns the number of rows written. An empty batch with
+        `manifest=None` returns 0 and writes nothing, as before; an empty batch WITH a manifest
+        still writes the manifest row (in its own transaction) and returns 0.
         """
         rows: List[Tuple[str, str, str, str, int]] = []
         seen: set = set()
@@ -99,6 +119,11 @@ class VectorStore:
             seen.add(chunk_id)
             rows.append((chunk_id, doc_sha256, self._vector_json(vector), text, self.dimension))
         if not rows:
+            if manifest is not None:
+                with self._lock:
+                    conn = self._connection()
+                    with conn:
+                        write_manifest_entry(conn, manifest)
             return 0
         with self._lock:
             conn = self._connection()
@@ -109,11 +134,39 @@ class VectorStore:
                         "VALUES (?, ?, ?, ?, ?)",
                         rows,
                     )
+                    if manifest is not None:
+                        write_manifest_entry(conn, manifest)
             except sqlite3.IntegrityError as exc:
                 existing = self._existing_ids_locked([row[0] for row in rows])
                 clash = next((row[0] for row in rows if row[0] in existing), None)
                 raise ValueError(f"chunk_id '{clash}' already exists; no rows from the batch were written") from exc
         return len(rows)
+
+    def record_manifest(self, entry: ManifestEntry) -> None:
+        """Write one manifest row (typically a `failed` or `refused` outcome) in its own
+        transaction, independent of any vector rows. Upserts by `doc_sha256`, same rule as
+        `add_many(manifest=...)`."""
+        with self._lock:
+            conn = self._connection()
+            with conn:
+                write_manifest_entry(conn, entry)
+
+    def manifest_counts(self) -> ManifestCounts:
+        """Counts of manifest rows by status. Raises `ManifestCorruptionError` if the table
+        contains a status outside `STATUSES`."""
+        with self._lock:
+            return read_manifest_counts(self._connection())
+
+    def manifest_entry(self, doc_sha256: str) -> Optional[ManifestEntry]:
+        """One manifest row by document hash, or `None` when absent. Raises
+        `ManifestCorruptionError` if the stored row fails `ManifestEntry` validation."""
+        with self._lock:
+            return read_manifest_entry(self._connection(), doc_sha256)
+
+    def manifest_entries(self) -> List[ManifestEntry]:
+        """All manifest rows, ordered by `(source_url, doc_sha256)`."""
+        with self._lock:
+            return read_manifest_entries(self._connection())
 
     def _existing_ids_locked(self, chunk_ids: Sequence[str]) -> set:
         """Caller holds self._lock. Batched so the query stays under SQLite's bound-parameter limit."""
