@@ -8,10 +8,9 @@ manifest into two plain, GET-only files under `out/index/`:
   `doc_sha256`, whatever its status (`indexed` / `failed` / `superseded` / `refused`).
 - `flop-surface.jsonl` -- one JSON object per line, only for rows whose status is `indexed`.
 
-**These files are not live yet.** The URLs below are where the operator intends to publish them
-(the `gh-pages` branch), once that publish step actually runs -- this package only builds the two
-files on disk. Until that publish happens, `curl`-ing them returns nothing that resembles
-OpenAgentSearch.
+**Published.** The operator pushes the two files to the `gh-pages` branch, from which GitHub Pages
+serves them at the URLs below (landing page: https://djd39448.github.io/openagentsearch/). Each publish is a
+snapshot: `generated_at` and `db_sha256` in `manifest.json` say which build you are reading.
 
 ## `manifest.json`
 

@@ -14,6 +14,8 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - Current package version is `0.1.0`.
 - Phases 0-6 of the repository roadmap have been implemented and fixture-tested; future work plainly continues (see [ROADMAP.md](./ROADMAP.md)).
 - There is no production index, hosted service, published release or tag, or user/adoption claim.
+  A first public static snapshot of the index exists at https://djd39448.github.io/openagentsearch/ (two GET-only
+  files, see [docs/static-index.md](./docs/static-index.md)); it is a snapshot, not a service.
 - Live fetch-to-index wiring exists (`LiveIngester`, one URL at a time behind the allowlist, robots.txt, page budget and rate limiter) and is fixture-tested against a local server only; it is intentionally not presented as a production-ready crawl workflow. A bounded, config-driven link-following loop now exists on top of it (see "What works today" below), but it is still a one-shot bounded run, not a daemon.
 - The currently demonstrated end-to-end path is offline: caller-supplied HTML through extraction, chunking, injected embeddings, SQLite vector storage, `/search`, and `/doc/{sha256}`.
 
@@ -74,8 +76,9 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - the site-pages adapter (`SitePagesAdapter`) remains for an explicit, operator-supplied URL list
   outside the crawl loop, with no robots.txt/budget/rate-limit handling of its own -- that policy
   lives in the crawl loop and `LiveIngester`, not in this adapter;
-- no public/production index — the static export is a local file-writing tool the operator runs
-  and then publishes themselves (for example to `gh-pages`); this repository does not publish it;
+- no production index or hosted search service: what is public is a GET-only static snapshot
+  (https://djd39448.github.io/openagentsearch/index/manifest.json and `index/flop-surface.jsonl`), regenerated
+  by the operator from a local build; nothing in this repository serves queries;
 - superseded documents' chunk rows are still not removed from the vector store, and
   `flop-surface.jsonl` is a snapshot as of the moment it was generated, not a live feed;
 - no automated PR/intake/merge/sign-off workflow;
