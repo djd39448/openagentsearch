@@ -80,6 +80,22 @@ package publication, or hosted release exists.
   `source_kind`): manifest status counts broken out per `source_kind`. `make_healthz_route`'s
   `/healthz` now also reports `"kinds": {source_kind: {indexed, failed, superseded, refused}}`
   after `"index"`.
+- `openagentsearch.pipeline.publish.build_static_index()` and its CLI
+  (`python -m openagentsearch.pipeline.publish --db PATH --root DIR --out DIR
+  [--abstract-chars 300] [--base-url URL]`): a static index export. Reads a `VectorStore`'s
+  manifest and writes, atomically (temp file + `os.replace`), exactly two files under
+  `out/index/` plus a `README.txt`: `manifest.json` (schema
+  `openagentsearch.static-index/1` — every manifest row, every status, sorted by
+  `(source_url, doc_sha256)`, with `counts` and per-`source_kind` `kinds` breakdowns) and
+  `flop-surface.jsonl` (one compact JSON line per `indexed` document only, sorted by
+  `(source_kind, source_url, doc_sha256)`, each carrying a title and abstract read from
+  `root/extracted/<doc_sha256>.json` — `""` for either, counted in `PublishReport.missing_extracted`,
+  when that record is absent or unreadable — plus the URL's `#section` fragment when present). A
+  document read that fails (`ManifestCorruptionError`) is raised before any file under `out/` is
+  touched, so a corrupt store leaves a pre-existing export untouched and leaves no temp file
+  behind. The CLI prints one compact JSON line and exits 0 on success; a missing `--db` or `--root`
+  (or any other build failure) prints one JSON error line to stderr and exits 2. See
+  [docs/static-index.md](./docs/static-index.md).
 
 ### Changed
 
