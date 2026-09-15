@@ -134,6 +134,22 @@ def test_blank_q_returns_400_without_embedding():
             _stop(server, thread, store)
 
 
+def test_all_zero_query_vector_returns_200_with_no_results():
+    # When the embedder produces an all-zero vector (e.g. KeywordEmbedder on a tokenless query),
+    # make_search_route() must short-circuit before cosine_search() - which raises ValueError on
+    # an all-zero query vector - and still answer 200 with an empty results list.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = _seed(tmpdir)
+        embedder = StubEmbedder([0.0, 0.0])
+        server, thread, base = _serve(store, embedder, lambda sha: None)
+        try:
+            status, body = _get(base + "/search?q=anything&k=5")
+            assert status == 200
+            assert body == {"query": "anything", "k": 5, "results": []}
+        finally:
+            _stop(server, thread, store)
+
+
 def test_invalid_k_returns_400_without_embedding():
     with tempfile.TemporaryDirectory() as tmpdir:
         store = _seed(tmpdir)

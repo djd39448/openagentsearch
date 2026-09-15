@@ -31,6 +31,11 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - an index manifest: a SQLite table next to the vectors recording `indexed` / `failed` /
   `superseded` / `refused` per document hash, written in the same transaction as the vector rows;
   and a store-aware `/healthz` (`make_healthz_route`) that reports counts by status;
+- a server CLI, `python -m openagentsearch.api.server --db PATH --embedder {ollama,keyword} [--host HOST] [--port PORT] [--root DIR]`,
+  that starts the HTTP API as a real process, prints one JSON line reporting where it is
+  listening, and stops cleanly on SIGINT/SIGTERM (SIGBREAK/CTRL_BREAK_EVENT on Windows);
+- `KeywordEmbedder` (`openagentsearch.embed.keyword`): a deterministic hashed-keyword embedder
+  for tests and demos; not semantic;
 - a minimal stdio MCP subset exposing one `search` tool through the HTTP `/search` endpoint — it supports only the documented subset (`initialize`, `tools/list`, `tools/call`) and is not a claim of complete MCP feature coverage;
 - a frozen synthetic eval set with recall@k;
 - a reproducible offline benchmark;
@@ -41,7 +46,6 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - no turnkey live crawl -> persistence -> index daemon;
 - no public/production index;
 - no published/static manifest export yet; superseded documents' chunk rows are not removed;
-- no HTTP server CLI (the API server is a Python-library integration surface);
 - no automated PR/intake/merge/sign-off workflow;
 - no OS/container-grade sandbox (the sandbox is process-level isolation only);
 - no remote embedding provider or paid-provider fallback;
@@ -53,11 +57,14 @@ The full walkthrough, including a copy-and-run offline indexing example, is in [
 
 ```
 python -m pytest -q
+python -m openagentsearch.api.server --db path/to/vectors.sqlite --embedder keyword --port 8080
 python -m openagentsearch.mcp.server --base-url http://127.0.0.1:PORT
 python -m scripts.gate --contribution path/to/contribution.py --results gate-results.jsonl
 ```
 
 - `pytest` assumes the project/dev test environment is already installed and `src` is importable.
+- The server command starts the HTTP API; `--embedder keyword` needs no Ollama and no network,
+  `--embedder ollama` requires a local Ollama server. Add `--root DIR` to also mount `/doc/{sha256}`.
 - The MCP command assumes a local OpenAgentSearch HTTP server is already running on that port.
 - The gate command reports sandbox execution only and does not authorize a merge.
 

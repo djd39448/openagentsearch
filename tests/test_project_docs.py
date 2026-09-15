@@ -56,7 +56,7 @@ def test_getting_started_names_real_public_symbols():
         assert getattr(importlib.import_module(module_name), attribute) is not None
     assert "openagentsearch.mcp.server" in doc
     assert importlib.import_module("openagentsearch.mcp.server") is not None
-    assert "no HTTP server CLI" in flat
+    assert "python -m openagentsearch.api.server" in doc
     assert "synthetic" in flat and "not production relevance ground truth" in flat
 
 

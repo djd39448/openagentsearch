@@ -158,3 +158,9 @@ def create_server(
     # Create and return the server
     server = http.server.ThreadingHTTPServer((host, port), Handler)
     return server
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised by the subprocess test
+    from openagentsearch.api.cli import main
+
+    raise SystemExit(main())

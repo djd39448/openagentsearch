@@ -103,8 +103,46 @@ scope for this document.
 
 ## HTTP API
 
-There is currently no HTTP server CLI; the API server is a Python-library integration surface.
-Construct it in code:
+### Server CLI
+
+```
+python -m openagentsearch.api.server --db path/to/vectors.sqlite --embedder keyword --host 127.0.0.1 --port 8080
+```
+
+Required flags: `--db PATH` (the SQLite file backing the `VectorStore`; its parent directory must
+already exist) and `--embedder {ollama,keyword}`. Optional flags: `--host` (default
+`127.0.0.1`), `--port` (default `8080`; `0` picks an ephemeral port), `--root DIR` (mounts
+`/doc/{sha256}` from that directory when given; otherwise `/doc/*` is simply not registered),
+`--dimension` (default `256` for `keyword`, `768` for `ollama`), and `--ollama-url` /
+`--ollama-model` (only used with `--embedder ollama`). `--embedder keyword` uses
+`KeywordEmbedder` (`openagentsearch.embed.keyword`) — a deterministic hashed-keyword embedder
+for tests and demos, not a semantic one; see its docstring for exactly what it does not
+guarantee. Constructing `--embedder ollama` never opens a connection by itself; a connection is
+only attempted lazily, on the first `/search` request.
+
+On success the process prints exactly one compact JSON line to stdout and flushes it, for example:
+
+```
+{"listening":"http://127.0.0.1:8080","db":"path/to/vectors.sqlite","embedder":"keyword","doc_route":false}
+```
+
+`doc_route` is `true` only when `--root` was given. The process then blocks until it receives
+SIGINT, SIGTERM, or — on Windows — SIGBREAK (delivered as CTRL_BREAK_EVENT to a process launched
+in its own process group). On that signal it shuts the server down, closes the store, prints
+`{"stopped":true}`, and exits `0`. A failure before the server starts listening (for example a
+`--db` parent directory that does not exist) prints one JSON `{"error": "..."}` line to stderr
+instead and exits `1`; an invalid argument (an unknown `--embedder` choice, an out-of-range
+`--port`, a `--root` that is not an existing directory, ...) is reported by argparse on stderr and
+exits `2` before anything is built. Binding to a host other than `127.0.0.1` / `localhost` is
+allowed but prints a `{"warning":"non-loopback host"}` line to stderr first — this CLI adds no
+authentication or TLS of its own, so exposing it beyond localhost is the caller's responsibility.
+(`--host ::1` is not treated as loopback: the server is built on a stdlib IPv4-only
+`ThreadingHTTPServer`, so an IPv6 literal fails to bind at all rather than serving over IPv6.)
+
+### Library integration
+
+The API server is also a Python-library integration surface; the CLI above is a thin wrapper
+around exactly this. Construct it in code:
 
 ```python
 import threading
@@ -186,7 +224,9 @@ Neither script exposes a command-line entry point today; call the functions from
 - No live crawl-to-index daemon: fetching, extraction persistence and vector indexing are separate
   building blocks that the caller composes.
 - No production index and no hosted service.
-- No HTTP server CLI.
+- `python -m openagentsearch.api.server` is a development/demo launcher, not a production process
+  supervisor: no daemonization, no PID file, no log rotation, no automatic restart, and no
+  authentication or TLS of its own.
 - No automated PR intake, merge or sign-off workflow.
 - The sandbox is process-level isolation only.
 - Embeddings come from the injected object or local Ollama; there is no remote provider.

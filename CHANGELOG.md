@@ -27,6 +27,26 @@ package publication, or hosted release exists.
   reports `{"status": "ok", "index": {"indexed": N, "failed": N, "superseded": N, "refused": N}}`.
   The default `/healthz` registered by `create_server()` is unchanged and stays byte-identical to
   `{"status":"ok"}`.
+- `python -m openagentsearch.api.server` (`openagentsearch.api.cli`): a server CLI that wires a
+  `VectorStore`, an embedder, and the `/healthz` / `/search` / `/doc/{sha256}` routes into a real
+  `ThreadingHTTPServer` process. Flags: `--db PATH` (required), `--embedder {ollama,keyword}`
+  (required), `--host` (default `127.0.0.1`), `--port` (default `8080`; `0` for an ephemeral
+  port), `--root DIR` (optional; mounts `/doc/` when given), `--dimension` (default `256` for
+  `keyword`, `768` for `ollama`), `--ollama-url` and `--ollama-model`. Prints one compact JSON
+  startup line to stdout (`{"listening": ..., "db": ..., "embedder": ..., "doc_route": ...}`) and
+  stops cleanly on SIGINT/SIGTERM (SIGBREAK/CTRL_BREAK_EVENT on Windows), printing
+  `{"stopped": true}`. A construction failure (for example a `--db` parent directory that does
+  not exist) prints a one-line JSON error to stderr and exits 1; argument errors exit 2. A
+  non-loopback `--host` prints a warning to stderr before listening rather than being refused.
+  `--embedder ollama` is untested in CI: there is no Ollama server in the test environment, so
+  only construction (never a live request) is exercised for it.
+- `KeywordEmbedder` (`openagentsearch.embed.keyword`): a deterministic, standard-library,
+  hashed-keyword text embedder (SHA-256 token hashing into fixed buckets, L2-normalized) for
+  tests and demos. It is lexical only, subject to hash collisions, and not comparable to
+  `OllamaEmbedClient` vectors. `make_search_route()`'s route now treats an all-zero or empty
+  query embedding (for example a tokenless query under `KeywordEmbedder`) as a valid query with
+  no matches (`200` with `results: []`) instead of letting `cosine_search()`'s
+  "all zeros" `ValueError` propagate.
 
 ### Changed
 

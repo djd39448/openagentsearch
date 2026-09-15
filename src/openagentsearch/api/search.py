@@ -54,7 +54,15 @@ def make_search_route(
         
         # Get the query vector from the embedder
         query_vector = embedder.embed(q)
-        
+
+        # A tokenless or otherwise all-zero query embedding (e.g. KeywordEmbedder on a query with
+        # no alphanumeric characters) carries no signal to rank against. cosine_search() rejects
+        # an empty or all-zero query vector by raising ValueError ("query vector cannot be all
+        # zeros"); that is a real contract of cosine_search and is not weakened here. Instead this
+        # is treated as a valid query with no matches, so the route still answers 200.
+        if not query_vector or not any(query_vector):
+            return (200, {"query": q, "k": k, "results": []})
+
         # Search for results
         results_list = cosine_search(store, query_vector, k)
         
