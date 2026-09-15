@@ -52,7 +52,9 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   [docs/static-index.md](./docs/static-index.md);
 - a frozen synthetic eval set with recall@k;
 - a reproducible offline benchmark;
-- a process-level contribution sandbox and fail-closed contribution sandbox result recording.
+- a process-level contribution sandbox and fail-closed contribution sandbox result recording;
+- a finality-gated chain-fact ingester seam (`openagentsearch.flop.chain`): facts above the
+  finalized head are deferred, never indexed; `NullChainSource` until a public RPC exists.
 
 ## What is not wired yet
 
@@ -68,7 +70,12 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - no automated PR/intake/merge/sign-off workflow;
 - no OS/container-grade sandbox (the sandbox is process-level isolation only);
 - no remote embedding provider or paid-provider fallback;
-- no claim that the PowerShell lint/type gate is runnable on every developer machine without appropriate local tooling.
+- no claim that the PowerShell lint/type gate is runnable on every developer machine without appropriate local tooling;
+- no chain RPC (`openagentsearch.flop.chain.ChainSource` has no real implementation yet, only
+  `NullChainSource` and the test-only `StaticChainSource`);
+- no persisted chain facts (`ingest_finalized_facts` hands accepted facts to an in-memory
+  `FactSink`; nothing writes them to disk, the vector store, or the index manifest);
+- no reputation ledger yet.
 
 ## Quick start
 

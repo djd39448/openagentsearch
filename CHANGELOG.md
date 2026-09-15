@@ -96,6 +96,18 @@ package publication, or hosted release exists.
   behind. The CLI prints one compact JSON line and exits 0 on success; a missing `--db` or `--root`
   (or any other build failure) prints one JSON error line to stderr and exits 2. See
   [docs/static-index.md](./docs/static-index.md).
+- `openagentsearch.flop.chain`: a finality-gated seam for chain-derived reputation signals
+  (FailedAcks, calibration snapshots, fraud verdicts) ahead of a public FLOP RPC existing —
+  `ChainFact` (validated `height`/`kind`/`key`/sorted-unique `payload`/`observed_at`),
+  `FinalizedHead`, the `ChainSource` / `FactSink` protocols, `NullChainSource` (always height 0,
+  never yields a fact — the stub used until a real RPC exists), `StaticChainSource` (a
+  fixed-fixture source for tests, validated to non-descending height order on construction), and
+  `ingest_finalized_facts()`: pure orchestration that reads `finalized_head()` exactly once per
+  run and hands every fact at or below that height to a `FactSink` in order, while every fact
+  above it is counted in `ChainIngestReport.deferred_above_finality` and never reaches the sink —
+  a moving finalized head during iteration can never widen the window one run ingests against.
+  `ListFactSink` is the in-memory, duplicate-rejecting sink used by its tests. No RPC, no
+  persistence, and no reorg handling below finality yet — see the module docstring.
 
 ### Changed
 
