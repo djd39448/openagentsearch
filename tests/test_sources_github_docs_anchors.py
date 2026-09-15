@@ -50,3 +50,19 @@ def test_distinct_headings_keep_plain_anchors() -> None:
     urls = [doc.url for doc in adapter.iter_documents()]
     assert any(u.endswith("#alpha") for u in urls) and any(u.endswith("#beta") for u in urls)
     assert not any(u.endswith("-1") for u in urls)
+
+
+def test_heading_less_parts_cut_at_the_size_limit_get_distinct_urls() -> None:
+    """A preamble longer than max_section_chars is cut into consecutive heading-less parts; the
+    live index marked one such continuation superseded because both pieces shared the bare URL."""
+    body = ("x" * 90 + chr(10)) * 300  # ~27 KB with no heading at all -> cut into two parts
+
+    def fetcher(url: str, timeout_s: float, max_bytes: int, user_agent: str) -> FetchResponse:
+        return FetchResponse(200, "text/plain; charset=utf-8", body.encode("utf-8"), False)
+
+    adapter = GitHubRepoDocsAdapter(
+        owner="o", repo="r", commit="c" * 40, paths=["manual.md"], fetcher=fetcher
+    )
+    urls = [doc.url for doc in adapter.iter_documents()]
+    assert len(urls) >= 2 and len(urls) == len(set(urls)), urls
+    assert urls[0].endswith("/manual.md") and urls[1].endswith("/manual.md#part-1")

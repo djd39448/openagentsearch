@@ -184,7 +184,12 @@ class GitHubRepoDocsAdapter:
                         slug = base_slug if seen == 0 else f"{base_slug}-{seen}"
                         url = f"{blob_url}#{slug}"
                     else:
-                        url = blob_url
+                        # A heading-less part is normally only the file's preamble; a second one
+                        # exists only when a part was cut at max_section_chars. Those continuation
+                        # pieces get a synthetic "#part-<n>" fragment so they never share a URL.
+                        seen = slug_counts.get("", 0)
+                        slug_counts[""] = seen + 1
+                        url = blob_url if seen == 0 else f"{blob_url}#part-{seen}"
                     provenance = tuple(
                         sorted(
                             {
