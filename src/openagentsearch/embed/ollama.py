@@ -4,6 +4,9 @@ import json
 from typing import Callable, List
 
 
+DEFAULT_TIMEOUT_S = 120.0
+
+
 class OllamaConnectionError(RuntimeError):
     """Raised when a connection to the Ollama server cannot be established."""
     pass
@@ -18,8 +21,9 @@ class OllamaEmbedClient:
         self.transport = transport or self._default_transport
 
     def _default_transport(self, request: urllib.request.Request) -> bytes:
-        """Default transport that uses urllib.request.urlopen."""
-        with urllib.request.urlopen(request) as response:
+        """Default transport: urllib.request.urlopen bounded by DEFAULT_TIMEOUT_S, so a stalled
+        Ollama server surfaces as OllamaConnectionError instead of hanging the caller forever."""
+        with urllib.request.urlopen(request, timeout=DEFAULT_TIMEOUT_S) as response:
             return response.read()
 
     def embed(self, text: str) -> List[float]:
