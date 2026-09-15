@@ -67,12 +67,20 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   `ValidatorAttestation`, verified against the public `wire-format-v1.json` corpus; signature
   checks report `not_verified` without an injected sr25519 verifier (none exists in the Python
   standard library). See [docs/flop-wire.md](./docs/flop-wire.md).
+- a technocore.chat message log (`openagentsearch.sources.technocore_messages`, poller
+  `bin/message_log.py`): forward-only, bounded, resumable per-room message polling
+  (`seq`/`ts`/`from`/`text`/`sig`/`nonce`), with a `RoomMessagesAdapter` turning logged messages
+  into windowed `SourceDoc`s and any detected tail-truncation gap recorded, never concealed --
+  this is the message-text input the future reputation ledger will read. See
+  [docs/message-log.md](./docs/message-log.md).
 
 ## What is not wired yet
 
-- no scheduler/daemon: the crawl is a one-shot bounded run;
-- no message-text corpus from technocore.chat rooms -- `RoomDirectoryAdapter` reads the room
-  *directory* only (counts, timestamps, a classification hint), never message bodies;
+- no scheduler/daemon: the crawl is a one-shot bounded run; the message-log poller
+  (`bin/message_log.py`) is likewise a bounded `--once` sweep or a bounded `--loop`, not a
+  managed service;
+- the message log is forward-only from the day it starts: history older than the tail-truncation
+  window the live service ever answered with is unrecoverable, for any room, from any request;
 - the site-pages adapter (`SitePagesAdapter`) remains for an explicit, operator-supplied URL list
   outside the crawl loop, with no robots.txt/budget/rate-limit handling of its own -- that policy
   lives in the crawl loop and `LiveIngester`, not in this adapter;

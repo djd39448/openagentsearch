@@ -161,6 +161,28 @@ package publication, or hosted release exists.
   reason vocabulary, the hash table, and the one documented corpus discrepancy
   (`wrong_path_orientation`'s mutation is provably undetectable by any correct Merkle-walk
   implementation for that specific vector — see the doc for why).
+- `openagentsearch.sources.technocore_messages`: a technocore.chat message log, forward-only,
+  bounded and resumable. `parse_room_page` strictly parses one `GET /r/<room>?format=json...`
+  response into a `RoomPage` (messages sorted by `seq`; a single malformed message item is
+  skipped and counted in `skipped_malformed`, never fatal; a payload over 5,000,000 bytes, a
+  `room` field mismatch, or a non-list `messages` field raises `ValueError`). `MessageLog` appends
+  only genuinely new messages (`seq` strictly greater than the room's high-water mark) to
+  `messages/<room>.jsonl`, records a truncation gap (`[expected_next_seq, first_seq_seen]`) when
+  a poll's own `first_seq` outran that mark, and persists per-room state atomically to
+  `message-log-state.json` (`last_seq`, cumulative `messages`, every `gaps` entry,
+  `last_poll_at`). `select_rooms` builds a deterministic room set from an explicit list (a
+  private `p-*` id raises) plus the top-N rooms from a `rooms.jsonl` directory by
+  `message_count_seen`, restricted to rooms active within a given window. `RoomMessagesAdapter`
+  (`kind = "room_message"`) turns windows of up to `window` consecutive logged messages into one
+  `SourceDoc` each. `bin/message_log.py` (`--root`, `--rooms-jsonl`, repeatable `--room`, `--top`,
+  `--active-within-days`, `--interval`, `--limit`, `--once`/`--loop --sleep --max-runtime`,
+  `--base-url` for tests) is the poller CLI: one compact JSON sweep report line per sweep to
+  stdout, exit `0` on a normal stop, `2` for a bad/private `--room` (JSON error line to stderr),
+  `1` for any other unexpected exception; a `STOP` file in `--root` ends a running `--loop` at the
+  next check, the same convention `bin/crawl.py` uses. Never requests a `p-*` room; never follows
+  a redirect (`urllib_fetch`); writes only the two files named above. `sig`/`nonce` are stored
+  verbatim (possibly `""`, pre-0.11.0 messages carry none) and never cryptographically verified.
+  See [docs/message-log.md](./docs/message-log.md).
 
 ### Changed
 
