@@ -1,0 +1,2 @@
+Plain-text fixture file for GitHubRepoDocsAdapter: not markdown, so it must become exactly one
+SourceDoc with the whole file as its content, never split into sections.

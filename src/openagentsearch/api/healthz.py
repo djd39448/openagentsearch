@@ -13,14 +13,19 @@ from openagentsearch.vector.store import VectorStore
 
 
 def make_healthz_route(store: VectorStore) -> JSONRoute:
-    """Build a `/healthz` route reporting `{"status": "ok", "index": <manifest counts by status>}`.
+    """Build a `/healthz` route reporting `{"status": "ok", "index": <manifest counts by status>,
+    "kinds": <manifest counts by status, per source_kind>}`.
 
-    Key order is `status` then `index`; within `index`, key order follows `STATUSES` (`indexed`,
-    `failed`, `superseded`, `refused`). This does not swallow `ManifestCorruptionError` — a broken
-    manifest table surfaces as a request failure rather than a false "ok".
+    Key order is `status`, `index`, then `kinds`; within `index`, key order follows `STATUSES`
+    (`indexed`, `failed`, `superseded`, `refused`); `kinds` maps each `source_kind` present in the
+    manifest to that same per-status shape, in `source_kind` sort order. A `source_kind` with no
+    rows at all does not appear in `kinds` (see `read_manifest_kind_counts`). This does not
+    swallow `ManifestCorruptionError` — a broken manifest table surfaces as a request failure
+    rather than a false "ok".
     """
 
     def route(query: dict[str, list[str]]) -> tuple[int, dict[str, object]]:
-        return 200, {"status": "ok", "index": store.manifest_counts().as_dict()}
+        kinds = {kc.source_kind: kc.counts.as_dict() for kc in store.manifest_kind_counts()}
+        return 200, {"status": "ok", "index": store.manifest_counts().as_dict(), "kinds": kinds}
 
     return route

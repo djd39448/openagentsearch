@@ -36,6 +36,13 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   listening, and stops cleanly on SIGINT/SIGTERM (SIGBREAK/CTRL_BREAK_EVENT on Windows);
 - `KeywordEmbedder` (`openagentsearch.embed.keyword`): a deterministic hashed-keyword embedder
   for tests and demos; not semantic;
+- four FLOP source adapters (`openagentsearch.sources`) feeding `index_source_document(s)`: a room
+  *directory* reader over the crawler's `rooms.jsonl` (counts and timestamps only, never message
+  text), a pinned-commit GitHub markdown reader that splits files into sections, a GitHub issues +
+  comments reader driven by already-fetched `gh api` JSON, and an explicit operator-supplied list
+  of site pages behind a host allowlist; every adapter takes an injected fetcher or a file path, so
+  none of them touches the network on its own, and `/healthz` additionally reports manifest counts
+  by source kind (`"kinds"`);
 - a minimal stdio MCP subset exposing one `search` tool through the HTTP `/search` endpoint — it supports only the documented subset (`initialize`, `tools/list`, `tools/call`) and is not a claim of complete MCP feature coverage;
 - a frozen synthetic eval set with recall@k;
 - a reproducible offline benchmark;
@@ -44,6 +51,10 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 ## What is not wired yet
 
 - no turnkey live crawl -> persistence -> index daemon;
+- no message-text corpus from technocore.chat rooms -- `RoomDirectoryAdapter` reads the room
+  *directory* only (counts, timestamps, a classification hint), never message bodies;
+- no crawl loop that discovers URLs on its own yet (planned as package A4); the site-pages adapter
+  is for an explicit, operator-supplied URL list, not link-following;
 - no public/production index;
 - no published/static manifest export yet; superseded documents' chunk rows are not removed;
 - no automated PR/intake/merge/sign-off workflow;

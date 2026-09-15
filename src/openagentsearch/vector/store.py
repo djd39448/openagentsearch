@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from openagentsearch.index.manifest import (
+    KindCounts,
     ManifestCounts,
     ManifestEntry,
     ensure_manifest_table,
     read_manifest_counts,
     read_manifest_entries,
     read_manifest_entry,
+    read_manifest_kind_counts,
     write_manifest_entry,
 )
 
@@ -156,6 +158,12 @@ class VectorStore:
         contains a status outside `STATUSES`."""
         with self._lock:
             return read_manifest_counts(self._connection())
+
+    def manifest_kind_counts(self) -> Tuple[KindCounts, ...]:
+        """Per-`source_kind` manifest counts (see `read_manifest_kind_counts`). Raises
+        `ManifestCorruptionError` if the table contains a status outside `STATUSES`."""
+        with self._lock:
+            return read_manifest_kind_counts(self._connection())
 
     def manifest_entry(self, doc_sha256: str) -> Optional[ManifestEntry]:
         """One manifest row by document hash, or `None` when absent. Raises

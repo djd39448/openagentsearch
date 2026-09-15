@@ -1,0 +1,6 @@
+{"id": "room-bad-json", "classification_hint": "busy", "message_count_seen": 5,
+{"id": "bad id!", "classification_hint": "busy", "first_seen_ts": 1000, "last_activity_ts": 2000, "last_seq": 5, "message_count_seen": 3, "sample_from_dids": ["did:plc:aaa"]}
+{"id": "room-empty-1", "classification_hint": "empty", "first_seen_ts": 1000000, "last_activity_ts": null, "last_seq": null, "message_count_seen": 0, "sample_from_dids": []}
+{"id": "room-empty-2", "classification_hint": "empty", "first_seen_ts": null, "last_activity_ts": null, "last_seq": null, "message_count_seen": 0, "sample_from_dids": []}
+{"id": "room-alpha", "classification_hint": "busy", "first_seen_ts": 1700000000, "last_activity_ts": 1700003600, "last_seq": 42, "message_count_seen": 12, "sample_from_dids": ["did:plc:aaa", "did:plc:bbb"]}
+{"id": "room-beta", "classification_hint": "active", "first_seen_ts": 1700100000, "last_activity_ts": null, "last_seq": null, "message_count_seen": 7, "sample_from_dids": ["did:plc:ccc"]}

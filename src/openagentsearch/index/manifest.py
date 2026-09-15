@@ -107,6 +107,15 @@ class ManifestCounts:
         return {status: getattr(self, status) for status in STATUSES}
 
 
+@dataclass(frozen=True)
+class KindCounts:
+    """Manifest status counts (`ManifestCounts`) for one `source_kind` value, as returned by
+    `read_manifest_kind_counts`."""
+
+    source_kind: str
+    counts: ManifestCounts
+
+
 def ensure_manifest_table(conn: sqlite3.Connection) -> None:
     """Create the `manifest` table and its `source_url` index if they do not already exist.
 
@@ -194,6 +203,30 @@ def read_manifest_counts(conn: sqlite3.Connection) -> ManifestCounts:
             raise ManifestCorruptionError(f"manifest contains unrecognized status {status!r}")
         counts[status] = int(n)
     return ManifestCounts(**counts)
+
+
+def read_manifest_kind_counts(conn: sqlite3.Connection) -> tuple[KindCounts, ...]:
+    """One `GROUP BY source_kind, status` query, reshaped into one `ManifestCounts` per distinct
+    `source_kind` present in the table, sorted by `source_kind`. Every status in `STATUSES` is
+    present (0 by default) for every `source_kind` returned, same convention as
+    `read_manifest_counts`. A status value present in the table that is not one of `STATUSES` is
+    manifest corruption, raised as `ManifestCorruptionError`, same as `read_manifest_counts`.
+
+    NOT guaranteed: a `source_kind` with zero rows in the table does not appear here at all --
+    there is nothing in the table to distinguish "no rows yet" from "not a real kind"."""
+    per_kind: dict[str, dict[str, int]] = {}
+    for source_kind, status, n in conn.execute(
+        "SELECT source_kind, status, COUNT(*) FROM manifest GROUP BY source_kind, status"
+    ):
+        if status not in STATUSES:
+            raise ManifestCorruptionError(
+                f"manifest contains unrecognized status {status!r} for source_kind {source_kind!r}"
+            )
+        per_kind.setdefault(source_kind, {s: 0 for s in STATUSES})[status] = int(n)
+    return tuple(
+        KindCounts(source_kind=kind, counts=ManifestCounts(**counts))
+        for kind, counts in sorted(per_kind.items())
+    )
 
 
 def read_manifest_entry(conn: sqlite3.Connection, doc_sha256: str) -> ManifestEntry | None:

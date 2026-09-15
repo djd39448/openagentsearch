@@ -101,6 +101,43 @@ SHA-256, chunk counts and the chunk ids (`"<doc_sha256>:<chunk_index>"`).
 Pass an instance wherever an embedder is injected. Installing and running Ollama itself is out of
 scope for this document.
 
+## Indexing FLOP sources
+
+`openagentsearch.sources` adapters (room directory, pinned-commit GitHub markdown, GitHub issues,
+explicit site pages) all yield `SourceDoc`s for `index_source_document()` /
+`index_source_documents()` (`openagentsearch.pipeline.index`), the content-type-aware sibling of
+`index_document()`. A complete, no-network example using the room directory adapter:
+
+```python
+from pathlib import Path
+
+from openagentsearch.pipeline.index import index_source_documents
+from openagentsearch.sources.technocore_rooms import RoomDirectoryAdapter
+from openagentsearch.vector.store import VectorStore
+
+
+class KeywordEmbedder:
+    def embed(self, text: str) -> list[float]:
+        return [1.0, 0.0] if "busy" in text.lower() else [0.0, 1.0]
+
+
+store = VectorStore(Path("vectors.sqlite"), dimension=2)
+adapter = RoomDirectoryAdapter(Path("rooms.jsonl"), min_messages=1)
+report = index_source_documents(
+    adapter.iter_documents(), store=store, embedder=KeywordEmbedder(),
+    chunk_size=256, overlap=32,
+)
+print(report.indexed, "rooms indexed;", adapter.stats())
+store.close()
+```
+
+`index_source_documents()` is sequential like `index_documents()` but does NOT stop at the first
+failure (`SourceIndexReport.failed`/`.failures` record what went wrong per document); pass
+`root=Path("data")` to also persist raw bytes and an extracted-document record so `/doc/{sha256}`
+can serve the result. `VectorStore.manifest_kind_counts()` and the store-aware `/healthz`'s
+`"kinds"` key report manifest counts broken out per adapter `kind` (`"room"`, `"github_doc"`,
+`"github_issue"`, `"site"`).
+
 ## HTTP API
 
 ### Server CLI

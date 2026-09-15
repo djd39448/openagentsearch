@@ -166,6 +166,7 @@ def test_done_when_start_serve_and_stop_over_real_subprocess():
             assert body == {
                 "status": "ok",
                 "index": {"indexed": 0, "failed": 0, "superseded": 0, "refused": 0},
+                "kinds": {},  # per-source-kind counts (A3); empty for an empty store
             }
 
             status, body = _get(base + "/search?q=hello")

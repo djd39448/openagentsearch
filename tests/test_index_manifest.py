@@ -263,7 +263,8 @@ def test_store_aware_healthz_over_real_server():
                     body = response.read()
                 expected = (
                     b'{"status":"ok","index":'
-                    b'{"indexed":1,"failed":1,"superseded":0,"refused":0}}'
+                    b'{"indexed":1,"failed":1,"superseded":0,"refused":0},'
+                    b'"kinds":{"html":{"indexed":1,"failed":1,"superseded":0,"refused":0}}}'
                 )
                 assert body == expected
             finally:
@@ -439,5 +440,54 @@ def test_concurrent_index_document_race_does_not_clobber_the_winners_indexed_row
             assert store.manifest_counts() == ManifestCounts(
                 indexed=1, failed=0, superseded=0, refused=0
             )
+        finally:
+            store.close()
+
+
+# 11. read_manifest_kind_counts: sort order and corruption --------------------------------------
+
+
+def test_manifest_kind_counts_sorted_by_source_kind():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = _store(tmpdir)
+        try:
+            # inserted out of alphabetical order: "site" before "github_doc"
+            _index(store, DOC, "https://a.test/site-doc", GoodEmbedder(), source_kind="site")
+            _index(store, OTHER, "https://a.test/gh-doc", GoodEmbedder(), source_kind="github_doc")
+
+            kind_counts = store.manifest_kind_counts()
+            assert [kc.source_kind for kc in kind_counts] == ["github_doc", "site"]
+            assert kind_counts == tuple(sorted(kind_counts, key=lambda kc: kc.source_kind))
+            by_kind = {kc.source_kind: kc.counts for kc in kind_counts}
+            assert by_kind["github_doc"] == ManifestCounts(
+                indexed=1, failed=0, superseded=0, refused=0
+            )
+            assert by_kind["site"] == ManifestCounts(indexed=1, failed=0, superseded=0, refused=0)
+        finally:
+            store.close()
+
+
+def test_manifest_kind_counts_raises_on_unrecognized_status_for_one_kind():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "v.sqlite3"
+        store = VectorStore(path, 2)
+        try:
+            _index(store, DOC, "https://a.test/ok", GoodEmbedder(), source_kind="site")
+            side_conn = sqlite3.connect(path, timeout=5.0)
+            try:
+                with side_conn:
+                    side_conn.execute(
+                        "INSERT INTO manifest (doc_sha256, source_url, status, reason, "
+                        "indexed_at, chunk_count, extracted_sha256, source_kind) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            _sha("z"), "https://a.test/bad-kind", "bogus", "", 1.0, 0, "",
+                            "github_doc",
+                        ),
+                    )
+            finally:
+                side_conn.close()
+            with pytest.raises(ManifestCorruptionError):
+                store.manifest_kind_counts()
         finally:
             store.close()

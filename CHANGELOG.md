@@ -47,6 +47,39 @@ package publication, or hosted release exists.
   query embedding (for example a tokenless query under `KeywordEmbedder`) as a valid query with
   no matches (`200` with `results: []`) instead of letting `cosine_search()`'s
   "all zeros" `ValueError` propagate.
+- `openagentsearch.sources`: four FLOP source adapters sharing one `SourceDoc` document shape and
+  one `AdapterStats` accounting shape (`openagentsearch.sources.base`), plus the pure helpers
+  `split_markdown_sections()` and `slugify_heading()`:
+  - `RoomDirectoryAdapter` (`sources.technocore_rooms`) reads technocore.chat's `rooms.jsonl` room
+    *directory* line by line (bounded per-line length, a computed-once file SHA-256 in
+    provenance) and renders one deterministic English document per room meeting `min_messages`;
+    it never sees message text.
+  - `GitHubRepoDocsAdapter` (`sources.github_docs`) reads a fixed list of paths at one pinned
+    commit through an injected fetcher, splitting markdown files into per-section documents
+    (`split_markdown_sections`) and leaving `.txt`/`.json` files unsplit; `markdown_paths_from_tree`
+    turns a GitHub git-tree JSON payload into a sorted list of markdown paths and refuses a
+    `truncated` tree.
+  - `GitHubIssuesAdapter` (`sources.github_issues`) is a pure reader over already-loaded
+    `gh api .../issues` (+ per-issue comments) JSON, skipping pull requests and oversized issues;
+    `load_issues_with_gh()` is the runtime loader that shells out to `gh` through an injected
+    `runner` (`subprocess.run([...], shell=False, timeout=...)` by default), and
+    `_parse_concatenated_json_arrays()` parses `gh api --paginate`'s back-to-back JSON-array pages.
+  - `SitePagesAdapter` (`sources.flop_site`) fetches an explicit, operator-supplied list of URLs
+    behind a strict HTTPS host allowlist through an injected fetcher; it does not handle
+    robots.txt itself (that is a future crawl loop's job, not this adapter's).
+- `openagentsearch.pipeline.index.index_source_document()` / `index_source_documents()`: index a
+  `SourceDoc` from any adapter above the same way `index_document()` indexes raw HTML (atomic per
+  document, "already indexed" refused before any embedding call), content-type aware (`html` runs
+  through `extract()`; `text` is indexed as-is with `lang="und"`). When called with `root=`, the
+  raw bytes and an extracted-document JSON are also written (kept even on a later failure, written
+  only after the "already indexed" check) so `/doc/{sha256}` can serve the document.
+  `index_source_documents()` is sequential like `index_documents()` but, unlike it, a failure does
+  NOT stop the batch; it returns a `SourceIndexReport` (`indexed`, `already_indexed`, `failed`,
+  `reports`, `failures`).
+- `read_manifest_kind_counts(conn)` / `VectorStore.manifest_kind_counts()` (`KindCounts`, sorted by
+  `source_kind`): manifest status counts broken out per `source_kind`. `make_healthz_route`'s
+  `/healthz` now also reports `"kinds": {source_kind: {indexed, failed, superseded, refused}}`
+  after `"index"`.
 
 ### Changed
 
@@ -62,6 +95,8 @@ package publication, or hosted release exists.
   `chunk_ids`). A failure inside `index_document()` (from extraction through the final write) is
   now recorded as a `failed` manifest row before the original exception is re-raised unchanged;
   the "already indexed" refusal is not a failure and still writes nothing.
+- `make_healthz_route`'s `/healthz` response gains a `"kinds"` key after `"index"` (see Added,
+  above); `"kinds"` is `{}` for a store with no manifest rows yet, never absent.
 
 ### Fixed
 
