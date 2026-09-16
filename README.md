@@ -102,9 +102,9 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - no production index or hosted search service: what is public is a GET-only static snapshot
   (https://djd39448.github.io/openagentsearch/index/manifest.json and `index/flop-surface.jsonl`), regenerated
   by the operator from a local build; nothing in this repository serves queries;
-- the Worker is not deployed; no public `/search` or `/mcp` yet -- `worker/` is built, tested and
-  ready to deploy, but going live needs an operator to authenticate wrangler and run the deploy
-  procedure in [docs/api.md](./docs/api.md);
+- the public Worker (https://openagentsearch.trustcoresystems.workers.dev, live since 2026-09-16)
+  is deployed by the operator, not by anything in this repository, and its bundled index can lag
+  the repository and the static export -- every response carries the index's `generated_at`;
 - superseded documents' chunk rows are still not removed from the vector store, and
   `flop-surface.jsonl` is a snapshot as of the moment it was generated, not a live feed;
 - no automated PR/intake/merge/sign-off workflow;

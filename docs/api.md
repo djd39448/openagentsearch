@@ -3,16 +3,16 @@
 `worker/` (package C2b) is a single Cloudflare Worker that serves two surfaces over the same
 precomputed lexical index `pipeline.publish` builds (see [docs/static-index.md](./static-index.md)):
 GET-only JSON routes for agents whose sandbox only allows `fetch()`, and a remote MCP server at
-`/mcp` (Streamable HTTP). **Not deployed yet** — there is no live base URL until the operator runs
-the deploy procedure below (see [`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §7 for what that
-takes). Every example below uses the placeholder base URL:
+`/mcp` (Streamable HTTP). **Live since 2026-09-16** at the base URL below, deployed by the operator
+with the procedure at the end of this page; the deployed index can lag the repository, and every
+response says how stale it is (`generated_at`). Every example below uses this base URL:
 
 ```
-https://openagentsearch.<subdomain>.workers.dev
+https://openagentsearch.trustcoresystems.workers.dev
 ```
 
-Substitute the operator's actual `workers.dev` subdomain (or custom domain, if one is ever
-configured) once a deploy exists.
+No custom domain is configured; if the operator ever moves the service, the URL above is the
+only thing that changes.
 
 ## JSON routes
 
@@ -32,7 +32,7 @@ Service card: index freshness, per-`kind` document counts, the route and tool li
 this document and the static files.
 
 ```
-curl https://openagentsearch.<subdomain>.workers.dev/
+curl https://openagentsearch.trustcoresystems.workers.dev/
 ```
 
 ```json
@@ -51,7 +51,7 @@ curl https://openagentsearch.<subdomain>.workers.dev/
 ### `GET /healthz`
 
 ```
-curl https://openagentsearch.<subdomain>.workers.dev/healthz
+curl https://openagentsearch.trustcoresystems.workers.dev/healthz
 ```
 
 ```json
@@ -76,7 +76,7 @@ documents actually indexed in `lexical-v1.json` — not the nested per-status br
 ### `GET /search?q=&k=&kind=`
 
 ```
-curl 'https://openagentsearch.<subdomain>.workers.dev/search?q=authentication&k=5'
+curl 'https://openagentsearch.trustcoresystems.workers.dev/search?q=authentication&k=5'
 ```
 
 ```json
@@ -114,7 +114,7 @@ Reserved for the FLOP reputation ledger (package B2). **Not built yet**: every s
 `did:key` currently answers `404 ledger_not_built`.
 
 ```
-curl https://openagentsearch.<subdomain>.workers.dev/did/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf
+curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf
 ```
 
 ```json
@@ -203,8 +203,8 @@ until the ledger exists. A malformed `did` fails schema validation instead (the 
 ### Example `tools/call`
 
 ```
-curl https://openagentsearch.<subdomain>.workers.dev/mcp \
-  -H 'Host: openagentsearch.<subdomain>.workers.dev' \
+curl https://openagentsearch.trustcoresystems.workers.dev/mcp \
+  -H 'Host: openagentsearch.trustcoresystems.workers.dev' \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"q":"authentication","k":5}}}'
@@ -220,7 +220,7 @@ both automatically; `scripts/verify_public.py` (below) parses either.
 Remote server, for a client that speaks Streamable HTTP directly:
 
 ```json
-{"mcpServers": {"openagentsearch": {"url": "https://openagentsearch.<subdomain>.workers.dev/mcp"}}}
+{"mcpServers": {"openagentsearch": {"url": "https://openagentsearch.trustcoresystems.workers.dev/mcp"}}}
 ```
 
 For a stdio-only client, bridge through [`mcp-remote`](https://www.npmjs.com/package/mcp-remote):
@@ -230,7 +230,7 @@ For a stdio-only client, bridge through [`mcp-remote`](https://www.npmjs.com/pac
   "mcpServers": {
     "openagentsearch": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://openagentsearch.<subdomain>.workers.dev/mcp"]
+      "args": ["-y", "mcp-remote", "https://openagentsearch.trustcoresystems.workers.dev/mcp"]
     }
   }
 }
@@ -263,6 +263,12 @@ local stdio wrapper is still available:
   keys, no OAuth, and no accounts. The rate limiter exists to bound abuse, not to gate access.
 - **Zero subrequests.** The Worker never calls `fetch()`, KV, D1, or anything else per request — it
   only reads the index bundled into it at deploy time. There is no SSRF surface here.
+- **Send a User-Agent.** Cloudflare's edge (not this Worker) answers `403` with the plain-text body
+  `error code: 1010` to Python's default `urllib` User-Agent (`Python-urllib/x.y`) — its Browser
+  Integrity Check. Any explicit `User-Agent` value passes (python-requests, node, Go, curl and an
+  empty header all do); `urllib` callers must set one, as `openagentsearch.mcp.server` and
+  `scripts/verify_public.py` do. This is edge behaviour the operator cannot switch off on a
+  `workers.dev` hostname.
 
 ## Unicode version note
 
@@ -291,7 +297,7 @@ never committed, never printed. After a deploy, verify it against the local `man
 build was published from:
 
 ```
-python scripts/verify_public.py https://openagentsearch.<subdomain>.workers.dev --manifest path/to/manifest.json
+python scripts/verify_public.py https://openagentsearch.trustcoresystems.workers.dev --manifest path/to/manifest.json
 ```
 
 Prints one compact JSON line and exits `0` on a full match, `1` on the first mismatch found (named
