@@ -220,6 +220,26 @@ package publication, or hosted release exists.
   `manifest.json` and `flop-surface.jsonl`; a `LexicalSizeError` there is reported (not raised) as
   `PublishReport.lexical_error` (`PublishReport` also gains `lexical_bytes`), leaving the other
   two files exactly as written. See [docs/static-index.md](./docs/static-index.md).
+- `worker/` (package C2b): a Cloudflare Worker serving the precomputed lexical index over HTTP —
+  GET-only JSON routes (`/`, `/healthz`, `/search`, `/did/{did}`, `/route` reserved, `/index/*`
+  redirects to the published static files) plus a stateless remote MCP server at `/mcp`
+  (`search`, `did_lookup`, `index_info`). `worker/src/search.js` is a pure-ES-module JavaScript
+  port of `openagentsearch.lexical.tokenize`/`search`, verified to reproduce every case in
+  `tests/fixtures/lexical/tokenizer-vectors.json` and `queries.json` exactly (BM25 term
+  contributions summed in sorted term order, scores rounded to 6 decimal places); a committed,
+  generated casefold table (`worker/src/casefold-table.json`, `scripts/make_casefold_table.py`,
+  `tests/test_casefold_table.py`) closes the gap between `String.prototype.toLowerCase()` and
+  Python's `str.casefold()`. The router (`worker/src/routes.js`) is dependency-free — no `agents`,
+  no MCP SDK — so `worker/test/` runs under plain Node with nothing installed;
+  `worker/src/index.js` composes it with the MCP transport (`worker/test-mcp/`, needs
+  `node_modules`, WSL-only). Every route is rate-limited (except `/` and `/healthz`) via the
+  Workers Rate Limiting binding, failing closed to `503` when it is missing or throws.
+  `scripts/verify_public.py` (stdlib) checks a live deploy's `/healthz` counts and `/mcp` tool
+  list against a local `manifest.json`; `tests/test_worker_js.py` runs the dependency-free JS
+  suite as a subprocess (skipped when no `node` is on `PATH`), and `tests/test_verify_public.py`
+  exercises the verify script against a loopback `http.server`. Nothing is deployed by this
+  change — see [docs/api.md](./docs/api.md) (new) for every route, the MCP tool schemas, client
+  configuration, and the operator deploy procedure.
 
 ### Changed
 

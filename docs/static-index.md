@@ -177,6 +177,11 @@ finish) it raises `LexicalSizeError` BEFORE writing anything, not even a temp fi
 is `0` in that case. `manifest.json` and `flop-surface.jsonl` are written first and are unaffected
 either way; `lexical-v1.json` is written last.
 
+**Served live, not just as a static file.** A Cloudflare Worker (package C2b) bundles
+`lexical-v1.json` at deploy time and serves `GET /search` (the same BM25 ranking, over HTTP) plus a
+remote MCP server at `/mcp` with no server of its own to run queries against. See
+[docs/api.md](./api.md) for the routes, the MCP tools, and the operator deploy procedure.
+
 ## Not guaranteed
 
 - Freshness: all three files are a snapshot as of `generated_at`, not a live feed.

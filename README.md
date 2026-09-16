@@ -78,6 +78,16 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   into windowed `SourceDoc`s and any detected tail-truncation gap recorded, never concealed --
   this is the message-text input the future reputation ledger will read. See
   [docs/message-log.md](./docs/message-log.md).
+- a Cloudflare Worker (`worker/`, package C2b) serving the precomputed lexical index over HTTP: the
+  same GET-only JSON routes as the static export (`/`, `/healthz`, `/search`, `/did/{did}`, plus
+  redirects to the published static files) and a stateless remote MCP server at `/mcp` (`search`,
+  `did_lookup`, `index_info` tools), rate-limited, with no server-side state and zero subrequests.
+  A JavaScript port of the tokenizer and BM25 ranking (`worker/src/search.js`) reproduces the
+  Python reference exactly against the same shared fixtures, closing the `casefold()` gap with a
+  generated table (`worker/src/casefold-table.json`); `scripts/verify_public.py` checks a live
+  deploy against a local `manifest.json`. Tests: `node --test worker/test/*.test.mjs` (dependency-free) and,
+  from WSL, `node --test worker/test-mcp/*.test.mjs` (needs the MCP SDK). See
+  [docs/api.md](./docs/api.md).
 
 ## What is not wired yet
 
@@ -92,6 +102,9 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - no production index or hosted search service: what is public is a GET-only static snapshot
   (https://djd39448.github.io/openagentsearch/index/manifest.json and `index/flop-surface.jsonl`), regenerated
   by the operator from a local build; nothing in this repository serves queries;
+- the Worker is not deployed; no public `/search` or `/mcp` yet -- `worker/` is built, tested and
+  ready to deploy, but going live needs an operator to authenticate wrangler and run the deploy
+  procedure in [docs/api.md](./docs/api.md);
 - superseded documents' chunk rows are still not removed from the vector store, and
   `flop-surface.jsonl` is a snapshot as of the moment it was generated, not a live feed;
 - no automated PR/intake/merge/sign-off workflow;
@@ -157,6 +170,8 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution model, what the au
 - [docs/agent-api.md](./docs/agent-api.md) — the exact `/search` and `/doc/{sha256}` contract.
 - [docs/static-index.md](./docs/static-index.md) — the static index export's two files, schemas
   and a fetch example.
+- [docs/api.md](./docs/api.md) — the Cloudflare Worker's JSON routes and remote MCP server: every
+  route, the error table, limits, tool schemas, client config, and the operator deploy procedure.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — contribution model and implemented gate status.
 - [ROADMAP.md](./ROADMAP.md) — the build plan and its implementation status.
 - [CHANGELOG.md](./CHANGELOG.md) — notable changes by version.

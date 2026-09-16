@@ -1,62 +1,149 @@
-// OpenAgentSearch public endpoint -- scaffold (package C2b fills in the routes, the index and the tools).
+// OpenAgentSearch public endpoint: GET-only JSON routes (`./routes.js`) plus a remote MCP server
+// at `/mcp` (Streamable HTTP, stateless -- no Durable Object, no session state) exposing `search`,
+// `did_lookup` and `index_info` as tools, built on `agents/mcp/server`'s `createMcpHandler` and
+// the MCP SDK v2 `McpServer`. See `handoff/C1-DESIGN.md` §1 for the full route/tool table and
+// `handoff/C2b-SPEC.md` for this package's deliverable.
 //
-// Two surfaces on one Worker:
-//   * GET-only JSON routes (/, /healthz, /search, /did/{did}) for agents whose sandbox only allows fetch();
-//   * a remote MCP server at /mcp (Streamable HTTP, stateless: no Durable Object, no session state) exposing
-//     the same `search` and `did_lookup` operations as tools, built on `agents/mcp/server`'s
-//     createMcpHandler and the MCP SDK v2 server.
+// This is the ONLY module in `worker/src/` that imports `agents` or `@modelcontextprotocol/*` --
+// `./routes.js` and `./search.js` stay dependency-free so `worker/test/` runs under plain Node
+// with no installed packages. `worker/test-mcp/` (which imports this module) needs `node_modules`
+// and runs from WSL; see the repository's test recipes.
 //
-// NOT guaranteed by this scaffold: any real search (the index is not wired yet), any rate limiting on
-// /mcp beyond what the handler below applies, or a stable tool list -- C2b defines both.
+// NOT guaranteed: no rate limiting beyond `env.RATE_LIMITER` (fails closed to 503 when the
+// binding is missing or throws -- see `./routes.js`'s `checkRateLimit`); no per-request globals;
+// no `fetch()` anywhere in this module or the ones it composes; no `eval`.
 
 import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 
-const SERVICE = { name: "openagentsearch", version: "0.0.0-scaffold" };
+import INDEX from "../index/lexical-v1.json" with { type: "json" };
+import PACKAGE from "../package.json" with { type: "json" };
+import { search } from "./search.js";
+import { DID_RE, checkRateLimit, handleJsonRoute, healthzBody, knownKinds } from "./routes.js";
 
-/** Build one MCP server per request (stateless): tools are pure over their inputs. */
-function createServer() {
-  const server = new McpServer({ name: SERVICE.name, version: SERVICE.version });
+const SERVICE_NAME = "openagentsearch";
+
+/**
+ * Builds one stateless MCP server over `index`: pure tool handlers with no per-request globals,
+ * matching `handoff/C2b-SPEC.md` §3's three tools exactly. A fresh server is built per request by
+ * `createMcpHandler` (never reused across requests), so nothing here may hold state between
+ * calls.
+ *
+ * NOT guaranteed: this does not itself apply the rate limiter or the `Host`/`Origin` checks --
+ * those happen around it, in `makeWorker` (this module) and inside `createMcpHandler` itself.
+ *
+ * @param {object} index a parsed `lexical-v1.json` document
+ * @returns {McpServer}
+ */
+export function createServer(index) {
+  const server = new McpServer({ name: SERVICE_NAME, version: PACKAGE.version });
+  // Computed from `index`, not hard-coded -- see the kind rule at `./routes.js`'s `knownKinds`.
+  // `kind` itself stays a plain bounded string in the schema (not `z.enum`) so an unknown value
+  // is reported by the handler as the documented `invalid_kind`/`known` body, the same shape
+  // `GET /search` uses, rather than colliding with the SDK's own schema-validation error.
+  const knownKindsList = knownKinds(index);
+  const knownKindsSet = new Set(knownKindsList);
+
   server.registerTool(
-    "healthz",
+    "search",
     {
-      description: "Report the service name and whether the lexical index is loaded (scaffold: it is not).",
+      description:
+        "BM25 lexical search over the OpenAgentSearch index (lexical, not semantic -- keyword " +
+        "overlap only). Returns the same body as GET /search.",
+      inputSchema: z.object({
+        q: z.string().min(1).max(512),
+        k: z.number().int().min(1).max(50).default(10),
+        kind: z.string().min(1).max(32).optional(),
+      }),
+    },
+    async ({ q, k, kind }) => {
+      if (kind !== undefined && !knownKindsSet.has(kind)) {
+        return {
+          content: [
+            { type: "text", text: JSON.stringify({ error: "invalid_kind", known: knownKindsList }) },
+          ],
+          isError: true,
+        };
+      }
+      const results = search(index, q, k, kind ?? null);
+      const body = { query: q, k, results };
+      return { content: [{ type: "text", text: JSON.stringify(body) }] };
+    },
+  );
+
+  server.registerTool(
+    "did_lookup",
+    {
+      description:
+        "Look up a did:key identity on the OpenAgentSearch reputation ledger. The ledger is not " +
+        "built yet (package B2); every well-formed did:key currently answers ledger_not_built.",
+      inputSchema: z.object({
+        did: z.string().regex(DID_RE),
+      }),
+    },
+    // eslint-disable-next-line no-unused-vars
+    async ({ did }) => ({
+      content: [{ type: "text", text: JSON.stringify({ error: "ledger_not_built" }) }],
+      isError: true,
+    }),
+  );
+
+  server.registerTool(
+    "index_info",
+    {
+      description: "Index freshness and counts -- the same body as GET /healthz.",
       inputSchema: z.object({}),
     },
     async () => ({
-      content: [{ type: "text", text: JSON.stringify({ status: "ok", index_loaded: false }) }],
+      content: [{ type: "text", text: JSON.stringify(healthzBody(index)) }],
     }),
   );
+
   return server;
 }
 
-const mcp = createMcpHandler(createServer, { route: "/mcp" });
+/**
+ * Composes the JSON router (`./routes.js`) with the `/mcp` MCP transport into one Worker-shaped
+ * `{fetch, handle}`. The rate limiter runs before the MCP handler, keyed and rated the same way
+ * as every other non-exempt route (see `./routes.js`'s `checkRateLimit`).
+ *
+ * NOT guaranteed: `/mcp`'s `Host`/`Origin` validation and Streamable HTTP framing are entirely
+ * `createMcpHandler`'s; this function only decides whether to reach it at all.
+ *
+ * @param {object} index a parsed `lexical-v1.json` document
+ * @returns {{fetch: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>, handle: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>}}
+ */
+export function makeWorker(index) {
+  const mcpHandler = createMcpHandler(() => createServer(index), { route: "/mcp" });
+  // Computed once per loaded `index`, not per request or hard-coded -- see the kind rule at
+  // `./routes.js`'s `knownKinds`. (`createServer` above computes its own copy per MCP request,
+  // since `createMcpHandler` builds a fresh server per request; this one backs only the JSON
+  // `/search` route reached via `handleJsonRoute`.)
+  const knownKindsSet = new Set(knownKinds(index));
 
-function json(status, body, extra = {}) {
-  return new Response(JSON.stringify(body) + "\n", {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "access-control-allow-origin": "*",
-      "x-content-type-options": "nosniff",
-      ...extra,
-    },
-  });
-}
-
-export default {
-  async fetch(request, env, ctx) {
+  /**
+   * @param {Request} request
+   * @param {unknown} [env]
+   * @param {unknown} [ctx]
+   * @returns {Promise<Response>}
+   */
+  async function handle(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/mcp") {
-      return mcp(request, env, ctx);
+      const limited = await checkRateLimit(index, env, request, request.method);
+      if (limited) return limited;
+      return mcpHandler(request, env, ctx);
     }
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return json(405, { error: "method_not_allowed" }, { allow: "GET, HEAD" });
-    }
-    if (url.pathname === "/healthz") {
-      return json(200, { status: "ok", index_loaded: false, service: SERVICE });
-    }
-    return json(404, { error: "not_found" });
-  },
-};
+    return handleJsonRoute(index, request, env, knownKindsSet);
+  }
+
+  return { fetch: handle, handle };
+}
+
+const worker = makeWorker(INDEX);
+
+/** The default-index-bound handler, exported standalone for callers that want it directly. */
+export const handle = worker.handle;
+
+export default worker;
