@@ -1,0 +1,24 @@
+{
+  "name": "openagentsearch-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAgentSearch public endpoint: GET-only JSON routes plus a remote MCP server (Streamable HTTP) on a Cloudflare Worker, over a precomputed lexical index.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "dry-run": "wrangler deploy --dry-run --outdir dist",
+    "test": "node --test test",
+    "test:mcp": "node --test test-mcp"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "^0.23.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "wrangler": "^4.132.0"
+  }
+}

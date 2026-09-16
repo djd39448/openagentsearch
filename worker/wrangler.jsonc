@@ -1,0 +1,18 @@
+/**
+ * OpenAgentSearch public endpoint (Cloudflare Worker, Free plan).
+ * Build + deploy from a Linux/WSL shell with Node >= 22: `npm ci && npx wrangler deploy`.
+ * Nothing here is deployed by this repository's tests; see docs/api.md for the operator procedure.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openagentsearch",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // Workers Rate Limiting binding (GA): 60 requests per 60 s per key (client IP), per Cloudflare location.
+  // The handler fails closed to 503 if this binding is missing.
+  "ratelimits": [
+    { "name": "RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } }
+  ]
+}
