@@ -100,5 +100,9 @@ which copy is called "left," so no implementation of the documented Merkle-walk 
 correct or not -- can distinguish the flipped flag from the original at that specific step.
 `tests/test_flop_wire_corpus.py::test_negative_case_wrong_path_orientation_root_is_unaffected`
 proves this against the real corpus bytes and documents it in place of asserting the corpus's
-stated (and, for this vector, unreachable) `LeafNotInRoot` outcome. See that package's
-`deviations`/`unresolved` output for the full writeup.
+stated (and, for this vector, unreachable) `LeafNotInRoot` outcome. The same defect was reported
+upstream as flop-labs/yellowpaper issue #44 (2026-09-11), with a reproduction from the corpus
+generator and two candidate fixes (flip a non-self-duplicate path item, or state an explicit
+orientation rule in F.3); two further independent implementations confirmed it there. This
+repository does not file a duplicate; the test above will start failing the day the corpus
+vector is regenerated at a position where orientation is observable, which is the intended signal.
