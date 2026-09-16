@@ -5,9 +5,11 @@ manifest.json - every document the pipeline has attempted to index, one row per
   doc_sha256, with its status (indexed / failed / superseded / refused) and reason.
 flop-surface.jsonl - one JSON object per line, only for rows whose status is "indexed";
   "abstract" is a lexical cut of the extracted text, never a summary.
+index/lexical-v1.json - a precomputed BM25 lexical index (openagentsearch.lexical) over the
+  same indexed rows; may be absent if it exceeded its size guard (see lexical_error).
 
-Both are GET-only static artifacts: plain files an operator regenerates and publishes
-on their own schedule. No freshness is guaranteed and neither file is signed.
+These are GET-only static artifacts: plain files an operator regenerates and publishes
+on their own schedule. No freshness is guaranteed and none is signed.
 
 "superseded" documents stay in manifest.json but are excluded from
 flop-surface.jsonl -- only the current indexed document per source_url appears there.
