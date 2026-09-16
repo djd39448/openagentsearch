@@ -76,3 +76,43 @@ This document specifies the machine-readable contract for OpenAgentSearch's agen
 ```json
 {"errors": [{"error": "invalid_sha256", "status": 400, "when": "Path parameter doc_sha256 is not exactly 64 lowercase ASCII hex characters."}, {"error": "not_found", "status": 404, "when": "Document with the given SHA256 hash does not exist in the system."}], "params": {"doc_sha256": {"constraints": {"case": "lower", "pattern": "[0-9a-f]{64}"}, "default": null, "in": "path", "notes": "Exactly 64 lowercase ASCII hex characters.", "required": true, "type": "string"}}, "success": {"keys": ["doc_sha256", "url", "title", "lang", "text", "extracted_at", "provenance"], "nested": {"provenance": {"keys": ["url", "fetched_at", "status", "sha256", "robots_allowed"]}}, "nullable": ["provenance"], "status": 200}}
 ```
+
+## MCP (stdio, local)
+
+`python -m openagentsearch.mcp.server --base-url URL` (package C3) is a minimal JSON-RPC 2.0 stdio
+server over `initialize`, `tools/list`, `tools/call`, exposing two tools. It does not implement
+resources, prompts, batch requests, notifications, or the full MCP surface.
+
+| Tool | Input schema | Backing request |
+|------|---------------|------------------|
+| `search` | `{"q": {"type": "string"}, "k": {"type": "integer", "minimum": 1, "maximum": 50}}`, `q` required, no additional properties | `GET <base-url>/search?q=&k=` |
+| `did_lookup` | `{"did": {"type": "string", "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$"}}`, `did` required | `GET <base-url>/did/{did}` |
+
+`did_lookup` validates `did` against that same pattern **locally, before any request**: a value
+that does not match never reaches the network and answers `isError: true` with
+`{"error": "invalid_did"}` synthesized directly, the same shape a live `/did/{did}` route answers
+for a malformed did (see [docs/api.md](./api.md#get-diddid)'s `GET /did/{did}` contract, which
+`--base-url` may point at). This tool performs no signature or cryptographic verification of its
+own — it only relays whatever `/did/{did}` on the configured `--base-url` currently says,
+including that route's own `ledger_not_built` placeholder answer until the reputation ledger
+(package B2) is published. A request never follows a redirect and its response body is bounded at
+1 MB.
+
+### Example `tools/call` (`did_lookup`)
+
+Request line sent on stdin:
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "did_lookup", "arguments": {"did": "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf"}}}
+```
+
+Response line on stdout, once `--base-url` points at a server whose `/did/{did}` answers the
+documented `ledger_not_built` placeholder:
+
+```json
+{"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "{\"error\":\"ledger_not_built\"}"}], "structuredContent": {"error": "ledger_not_built"}, "isError": true}}
+```
+
+A `did` that fails the pattern above answers the same shape with `{"error": "invalid_did"}`
+instead, without any request ever being sent; a successful `200` answers `isError: false` with
+`content`/`structuredContent` carrying that route's parsed JSON body verbatim.

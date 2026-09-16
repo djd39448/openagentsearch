@@ -240,6 +240,25 @@ package publication, or hosted release exists.
   exercises the verify script against a loopback `http.server`. Nothing is deployed by this
   change — see [docs/api.md](./docs/api.md) (new) for every route, the MCP tool schemas, client
   configuration, and the operator deploy procedure.
+- `openagentsearch.mcp.server` (package C3) gains a second tool, `did_lookup`, next to `search`:
+  `DID_LOOKUP_TOOL`'s `inputSchema` requires one `did` string matching
+  `^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$` (the same shape `docs/api.md`'s `GET /did/{did}`
+  documents). `MCPServer.did_lookup(did)` validates that shape locally first -- a `did` that does
+  not match never causes a request and returns `(400, {"error": "invalid_did"})` synthesized
+  locally -- then sends `GET <base-url>/did/<percent-encoded did>` with the same explicit
+  User-Agent `search()` uses, through an opener that never follows a redirect (a 3xx answer
+  surfaces as an ordinary `HTTPError`, exactly like `scripts/verify_public.py`'s opener), reading
+  the response bounded at 1 MB and parsing it strictly as a JSON object. `tools/call` maps a `200`
+  to `isError: false` with the parsed body as `content`/`structuredContent`; a `400`/`404` carrying
+  a JSON `{"error": ...}` body (including the locally-synthesized `invalid_did` and the route's own
+  `ledger_not_built` placeholder until the reputation ledger, package B2, is published) to the same
+  shape with `isError: true`, so the agent sees the server's own reason; and a transport failure,
+  a non-JSON body, or any other status to `isError: true` with a one-line reason instead of a
+  JSON-RPC protocol error. `tools/list` now returns both tools, `search` first; unknown tool names
+  keep the existing `-32602 Invalid params` path. This tool performs no signature or cryptographic
+  verification of its own -- it only relays what the public route currently says. See
+  [docs/agent-api.md](./docs/agent-api.md#mcp-stdio-local) and
+  [docs/api.md](./docs/api.md#mcp-post-mcp) for the tool schemas and a `tools/call` example.
 
 ### Changed
 

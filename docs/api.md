@@ -210,6 +210,28 @@ curl https://openagentsearch.trustcoresystems.workers.dev/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"q":"authentication","k":5}}}'
 ```
 
+`did_lookup`, against the same `/mcp` endpoint, today always answers the `ledger_not_built`
+placeholder for any syntactically valid `did:key` (see "`/did` is not built" above):
+
+```
+curl https://openagentsearch.trustcoresystems.workers.dev/mcp \
+  -H 'Host: openagentsearch.trustcoresystems.workers.dev' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"did_lookup","arguments":{"did":"did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf"}}}'
+```
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "content": [{"type": "text", "text": "{\"error\":\"ledger_not_built\"}"}],
+    "isError": true
+  }
+}
+```
+
 An unknown tool name is a JSON-RPC error (code `-32602`). The response transport may answer plain
 `application/json` or a one-shot `text/event-stream` (`event: message\ndata: <json>\n\n`) depending
 on the request's classification — a client library speaking standard MCP Streamable HTTP handles
@@ -237,7 +259,11 @@ For a stdio-only client, bridge through [`mcp-remote`](https://www.npmjs.com/pac
 ```
 
 For LAN use against a local `openagentsearch.api.server` process (not this public Worker), the
-local stdio wrapper is still available:
+local stdio wrapper (`openagentsearch.mcp.server`, package C3) is still available; it exposes the
+same two tools (`search`, `did_lookup`) — `did_lookup` there validates the `did` shape locally
+before any request and simply relays whatever `GET <base-url>/did/{did}` answers, including
+`ledger_not_built` once such a route exists behind `--base-url`. See
+[docs/agent-api.md](./agent-api.md) for its exact contract:
 
 ```json
 {

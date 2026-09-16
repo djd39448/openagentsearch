@@ -262,7 +262,7 @@ A store-aware `/healthz` is available but not registered by default: pass
 `create_server()` and the route reports `{"status": "ok", "index": {"indexed": N, "failed": N,
 "superseded": N, "refused": N}}`, the same counts shape as `VectorStore.manifest_counts()`.
 
-## MCP search wrapper
+## MCP wrapper
 
 Portable command, given a running local HTTP server:
 
@@ -274,9 +274,14 @@ Exactly what it is:
 
 - a stdio JSON-RPC subset;
 - supports `initialize`, `tools/list`, `tools/call`;
-- exposes one tool, `search`;
-- delegates to the supplied local HTTP `/search`;
+- exposes two tools, `search` and `did_lookup`;
+- `search` delegates to the supplied local HTTP `/search`; `did_lookup` validates the `did` shape
+  locally, before any request, then delegates to `GET <base-url>/did/{did}` and relays whatever
+  that route answers, performing no signature verification of its own;
 - does not implement resources, prompts, batch requests, notifications, or the full MCP surface.
+
+See [docs/agent-api.md](agent-api.md#mcp-stdio-local) for the exact tool schemas and a `tools/call`
+example.
 
 ## Evaluation and benchmark
 

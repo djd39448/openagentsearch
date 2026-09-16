@@ -1,4 +1,5 @@
-"""A deliberately minimal MCP server: JSON-RPC 2.0 over stdio, one tool ("search") backed by GET /search.
+"""A deliberately minimal MCP server: JSON-RPC 2.0 over stdio, two tools ("search" backed by GET
+/search, "did_lookup" backed by GET /did/{did}).
 
 Supported methods: initialize, tools/list, tools/call. One JSON object per input line, exactly one
 compact response line per request. This is a subset of MCP; it does not claim broader compatibility.
@@ -10,15 +11,20 @@ Run:  python -m openagentsearch.mcp.server --base-url http://127.0.0.1:<port>
 
 import argparse
 import json
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, List, Optional, TextIO
+from typing import Any, Dict, List, Optional, Tuple, TextIO
 
 PROTOCOL_VERSION_DEFAULT = "minimal-stdio-1"
 SERVER_INFO = {"name": "openagentsearch", "version": "0"}
 USER_AGENT = "openagentsearch-mcp/0"
+MAX_DID_BODY_BYTES = 1_000_000
+# Same shape the public /did/{did} route documents (docs/api.md): the did:key method, a
+# multibase "z" (base58btc) prefix, 1-120 base58 characters after it.
+DID_PATTERN = re.compile(r"^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$")
 SEARCH_TOOL: Dict[str, Any] = {
     "name": "search",
     "description": "Search the local OpenAgentSearch index.",
@@ -29,12 +35,38 @@ SEARCH_TOOL: Dict[str, Any] = {
         "additionalProperties": False,
     },
 }
+DID_LOOKUP_TOOL: Dict[str, Any] = {
+    "name": "did_lookup",
+    "description": (
+        "Look up ledger facts, score, and provenance for one did:key identity from the public "
+        "GET /did/{did} route. The reputation ledger (package B2) is not published yet: until it "
+        "is, every syntactically valid did:key answers ledger_not_built. This tool performs no "
+        "signature or cryptographic verification of its own -- it only relays what the route says."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "did": {"type": "string", "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$"},
+        },
+        "required": ["did"],
+    },
+}
 
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Turns every redirect into the underlying `HTTPError` instead of following it -- a
+    `/did/{did}` response that redirects is treated as a lookup failure, never a hop to chase."""
+
+    def redirect_request(
+        self, req: object, fp: object, code: int, msg: str, headers: object, newurl: str
+    ) -> None:
+        return None
 
 
 def _compact(obj: Any) -> str:
@@ -74,6 +106,48 @@ class MCPServer:
             raise ValueError("malformed /search response")
         return body
 
+    def did_lookup(self, did: str) -> Tuple[int, Dict[str, Any]]:
+        """GET <base_url>/did/<did> and return (status, parsed body) -- the ledger facts, score
+        and provenance the public /did/{did} route answers for one did:key (docs/api.md).
+
+        `did` is validated locally against DID_PATTERN first: a value that does not match never
+        causes a request -- this returns (400, {"error": "invalid_did"}) synthesized locally, the
+        same shape the public route itself answers for a malformed did, but without ever touching
+        the network. A did that does pass this local check is percent-encoded into a single path
+        segment and sent with the same explicit User-Agent as search() (Cloudflare's edge answers
+        403 to urllib's default one); the request never follows a redirect, and the response body
+        is read bounded at MAX_DID_BODY_BYTES, raising ValueError if that bound is exceeded. Only
+        the three statuses the route documents (200, 400, 404) have their body parsed -- strictly,
+        as JSON, and it must decode to a JSON object or this raises ValueError; any other status
+        (a 3xx redirect answer, a 5xx, a 403 from an edge) is returned as (status, {}) with the
+        body discarded, so the caller reports it by its code.
+
+        NOT guaranteed: this performs no signature or cryptographic verification of any kind and
+        makes no claim about the ledger facts' authenticity -- it only relays whatever the public
+        route currently says, including that route's own "ledger_not_built" placeholder answer
+        until the reputation ledger (package B2) is published.
+        """
+        if not DID_PATTERN.match(did):
+            return 400, {"error": "invalid_did"}
+        url = f"{self.base_url}/did/{urllib.parse.quote(did, safe='')}"
+        opener = urllib.request.build_opener(_NoRedirectHandler)
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            response = opener.open(request, timeout=self.http_timeout)
+        except urllib.error.HTTPError as answered:
+            response = answered
+        with response:
+            status = int(response.getcode() or 0)
+            raw = response.read(MAX_DID_BODY_BYTES + 1)
+        if len(raw) > MAX_DID_BODY_BYTES:
+            raise ValueError(f"did lookup response exceeds {MAX_DID_BODY_BYTES} bytes")
+        if status not in (200, 400, 404):
+            return status, {}
+        parsed: Any = json.loads(raw.decode("utf-8"))
+        if not isinstance(parsed, dict):
+            raise ValueError("malformed /did response")
+        return status, parsed
+
     # ----- dispatch -------------------------------------------------------------------------
     def handle(self, message: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(message, dict):
@@ -91,15 +165,23 @@ class MCPServer:
                 {"protocolVersion": version, "capabilities": {"tools": {}}, "serverInfo": dict(SERVER_INFO)},
             )
         if method == "tools/list":
-            return self._result(request_id, {"tools": [SEARCH_TOOL]})
+            return self._result(request_id, {"tools": [SEARCH_TOOL, DID_LOOKUP_TOOL]})
         if method == "tools/call":
             return self._call_tool(request_id, params)
         return self._error(request_id, METHOD_NOT_FOUND, "Method not found")
 
     def _call_tool(self, request_id: Any, params: Any) -> Dict[str, Any]:
-        if not isinstance(params, dict) or params.get("name") != "search" or not isinstance(params.get("arguments"), dict):
+        if not isinstance(params, dict) or not isinstance(params.get("arguments"), dict):
             return self._error(request_id, INVALID_PARAMS, "Invalid params")
+        name = params.get("name")
         arguments = params["arguments"]
+        if name == "search":
+            return self._call_search(request_id, arguments)
+        if name == "did_lookup":
+            return self._call_did_lookup(request_id, arguments)
+        return self._error(request_id, INVALID_PARAMS, "Invalid params")
+
+    def _call_search(self, request_id: Any, arguments: Dict[str, Any]) -> Dict[str, Any]:
         if set(arguments) - {"q", "k"}:
             return self._error(request_id, INVALID_PARAMS, "Invalid params")
         q = arguments.get("q")
@@ -128,6 +210,38 @@ class MCPServer:
             request_id,
             {"content": [{"type": "text", "text": _compact(body)}], "structuredContent": body, "isError": False},
         )
+
+    def _call_did_lookup(self, request_id: Any, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        did = arguments.get("did")
+        if not isinstance(did, str):
+            return self._error(request_id, INVALID_PARAMS, "Invalid params")
+
+        try:
+            status, body = self.did_lookup(did)
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            return self._tool_error(request_id, f"did lookup failed: {exc}")
+
+        if status == 200:
+            return self._result(
+                request_id,
+                {"content": [{"type": "text", "text": _compact(body)}], "structuredContent": body, "isError": False},
+            )
+        if status in (400, 404) and "error" in body:
+            # A well-formed request the route itself refused (e.g. invalid_did, caught locally
+            # before any request; or ledger_not_built) -- the agent sees the server's own reason.
+            return self._result(
+                request_id,
+                {"content": [{"type": "text", "text": _compact(body)}], "structuredContent": body, "isError": True},
+            )
+        return self._tool_error(request_id, f"did lookup failed: HTTP {status}")
+
+    def _tool_error(self, request_id: Any, reason: str) -> Dict[str, Any]:
+        """A tools/call result reporting a transport failure or unrecognized answer: isError:
+        true with a one-line, human-readable reason. Distinct from the JSON-RPC protocol-level
+        errors _error() returns -- this always resolves the request; nothing about the JSON-RPC
+        envelope itself failed."""
+        result = {"content": [{"type": "text", "text": reason}], "isError": True}
+        return self._result(request_id, result)
 
     # ----- stdio loop -----------------------------------------------------------------------
     def serve(self, input_stream: TextIO, output_stream: TextIO) -> None:
