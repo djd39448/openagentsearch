@@ -81,6 +81,63 @@ def test_messages_are_sorted_by_seq_ascending():
     assert [m.seq for m in page.messages] == [1, 3, 5]
 
 
+def test_integer_nonce_is_stored_as_its_decimal_string():
+    messages = [
+        {
+            "seq": 1, "ts": "t1", "from": "did:1", "text": "signed",
+            "sig": "sig-a", "nonce": 1789449982039,
+        },
+    ]
+    page = parse_room_page(_payload(messages=messages), room="room-x", observed_at=1.0)
+    assert page.skipped_malformed == 0
+    assert page.messages[0].nonce == "1789449982039"
+    assert isinstance(page.messages[0].nonce, str)
+
+
+def test_string_nonce_is_unchanged():
+    messages = [
+        {"seq": 1, "ts": "t1", "from": "did:1", "text": "x", "sig": "s", "nonce": "abc-123"},
+    ]
+    page = parse_room_page(_payload(messages=messages), room="room-x", observed_at=1.0)
+    assert page.messages[0].nonce == "abc-123"
+
+
+def test_boolean_and_float_nonce_are_skipped_and_counted():
+    messages = [
+        {"seq": 1, "ts": "t1", "from": "did:1", "text": "bool nonce", "nonce": True},
+        {"seq": 2, "ts": "t2", "from": "did:2", "text": "float nonce", "nonce": 1.5},
+        {"seq": 3, "ts": "t3", "from": "did:3", "text": "ok, no nonce at all"},
+    ]
+    page = parse_room_page(_payload(messages=messages), room="room-x", observed_at=1.0)
+    assert page.skipped_malformed == 2
+    assert [m.seq for m in page.messages] == [3]
+    assert page.messages[0].nonce == ""
+
+
+def test_live_service_shaped_page_with_integer_nonces_and_some_unsigned_yields_every_item():
+    # Reproduces the live builders-room shape that caused package ML's data loss: most items
+    # carry a string sig and an integer nonce, a few carry neither key at all.
+    messages = [
+        {
+            "seq": n, "ts": f"t{n}", "from": f"did:key:z{n}", "text": f"msg {n}",
+            "sig": f"sig{n}", "nonce": 1789449982000 + n,
+        }
+        for n in range(1, 195)
+    ] + [
+        {"seq": n, "ts": f"t{n}", "from": f"did:key:z{n}", "text": f"msg {n}"}
+        for n in range(195, 201)
+    ]
+    page = parse_room_page(
+        _payload(first_seq=1, last_seq=200, messages=messages), room="room-x", observed_at=1.0,
+    )
+    assert page.skipped_malformed == 0
+    assert len(page.messages) == 200
+    assert page.messages[0].nonce == "1789449982001"
+    assert page.messages[0].sig == "sig1"
+    assert page.messages[-1].nonce == ""
+    assert page.messages[-1].sig == ""
+
+
 def test_wrong_room_field_raises():
     with pytest.raises(ValueError):
         parse_room_page(_payload(room="other-room"), room="room-x", observed_at=1.0)
@@ -285,6 +342,52 @@ def test_select_rooms_invalid_explicit_id_raises(tmp_path):
         select_rooms(
             tmp_path / "rooms.jsonl", explicit=("has a space",), top=0,
             active_within_s=1.0, now=0.0,
+        )
+
+
+def test_select_rooms_exclude_drops_a_top_n_candidate_and_the_next_one_takes_its_place(tmp_path):
+    rooms_path = tmp_path / "rooms.jsonl"
+    now = 1_700_100_000.0
+    _write_rooms_jsonl(
+        rooms_path,
+        [
+            {"id": "events", "message_count_seen": 500, "last_activity_ts": int(now - 10)},
+            {"id": "builders", "message_count_seen": 400, "last_activity_ts": int(now - 10)},
+            {"id": "quiet-room", "message_count_seen": 50, "last_activity_ts": int(now - 10)},
+        ],
+    )
+    without_exclude = select_rooms(
+        rooms_path, explicit=(), top=2, active_within_s=3600.0, now=now,
+    )
+    assert without_exclude == ("events", "builders")
+
+    with_exclude = select_rooms(
+        rooms_path, explicit=(), top=2, active_within_s=3600.0, now=now, exclude=("events",),
+    )
+    assert with_exclude == ("builders", "quiet-room")  # quiet-room took events' place
+
+
+def test_select_rooms_exclude_does_not_affect_an_unrelated_explicit_room():
+    result = select_rooms(
+        Path("this-file-does-not-exist.jsonl"),
+        explicit=("room-a",), top=0, active_within_s=1.0, now=0.0, exclude=("room-b",),
+    )
+    assert result == ("room-a",)
+
+
+def test_select_rooms_id_in_both_explicit_and_exclude_raises_before_the_file_is_read():
+    with pytest.raises(ValueError):
+        select_rooms(
+            Path("this-file-does-not-exist.jsonl"),
+            explicit=("room-a",), top=5, active_within_s=1.0, now=0.0, exclude=("room-a",),
+        )
+
+
+def test_select_rooms_malformed_exclude_id_raises():
+    with pytest.raises(ValueError):
+        select_rooms(
+            Path("this-file-does-not-exist.jsonl"),
+            explicit=(), top=0, active_within_s=1.0, now=0.0, exclude=("has a space",),
         )
 
 

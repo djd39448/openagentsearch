@@ -12,16 +12,18 @@ forward-only from the day it starts: `parse_room_page` turns one such response b
 truncation gaps in `root/message-log-state.json`. Those two locations are the only files this
 module ever writes.
 
-NOT guaranteed: `sig` and `nonce` are stored verbatim and shape-validated (a string, possibly
-empty) but never cryptographically verified anywhere in this module -- a `RoomMessage`'s `sig`
-matching its `sender` is not checked; a recorded gap means the server's own reported `first_seq`
-for a poll outran this log's `last_seq` for that room, which is recorded once and never
-retroactively resolved -- the messages a gap covers are gone, not merely delayed; a busy room can
-still silently outrun polling if the server's tail-truncation window is smaller than the room's
-throughput between two polls, in which case the gap is recorded but the missing text itself is
-unrecoverable; `p-*` room ids are private by convention and this module refuses to select one
-explicitly, but nothing here can stop a caller from constructing a `RoomMessage`/`RoomPage` for
-one directly -- the refusal lives in `select_rooms` and the CLI, not in the dataclasses themselves.
+NOT guaranteed: `sig` and `nonce` are stored verbatim and shape-validated (a JSON string for
+`sig`; for `nonce`, a JSON string stored as-is or a JSON integer stored as its decimal string --
+see `parse_room_page`) but never cryptographically verified anywhere in this module -- a
+`RoomMessage`'s `sig` matching its `sender` is not checked; a recorded gap means the server's own
+reported `first_seq` for a poll outran this log's `last_seq` for that room, which is recorded
+once and never retroactively resolved -- the messages a gap covers are gone, not merely delayed;
+a busy room can still silently outrun polling if the server's tail-truncation window is smaller
+than the room's throughput between two polls, in which case the gap is recorded but the missing
+text itself is unrecoverable; `p-*` room ids are private by convention and this module refuses to
+select one explicitly, but nothing here can stop a caller from constructing a
+`RoomMessage`/`RoomPage` for one directly -- the refusal lives in `select_rooms` and the CLI, not
+in the dataclasses themselves.
 """
 
 import json
@@ -58,6 +60,19 @@ def _as_str(value: object) -> str:
     return value
 
 
+def _as_nonce_str(value: object) -> str:
+    """A message item's `nonce` field, in its on-disk string form: `None` becomes `""`, a JSON
+    integer (a plain `int`, never a `bool`) becomes its decimal string via `str(value)` -- the
+    live service's actual wire type for a signed message's nonce -- and a JSON string is kept
+    as-is. Any other type (bool, float, list, object) raises `ValueError` (the message-item skip
+    path), exactly like a mistyped `sig`."""
+    if value is None:
+        return ""
+    if _is_plain_int(value):
+        return str(value)
+    return _as_str(value)
+
+
 def _opt_int(value: object, field: str) -> int | None:
     if value is None:
         return None
@@ -70,6 +85,11 @@ def _opt_int(value: object, field: str) -> int | None:
 class RoomMessage:
     """One message as recorded on `<room>.jsonl`. `sig`/`nonce` may be `""` -- messages logged
     before technocore.chat 0.11.0 carry no signature at all -- and `text` may be empty.
+
+    `nonce` is always stored here as a string, but the wire type varies: for signed messages the
+    live service sends it as a JSON integer (an integer the posting client chose -- our own poster
+    uses the millisecond epoch -- and signed as decimal digits in the say-signed URL path), which
+    `parse_room_page` stores as `str(value)`; a JSON string `nonce` is stored as-is.
 
     NOT guaranteed: nothing here verifies `sig` against `sender`; it is shape-validated (a
     string) and stored, never cryptographically checked.
@@ -131,10 +151,18 @@ def parse_room_page(payload: bytes, *, room: str, observed_at: float) -> RoomPag
     or a non-object top level, a `room` field that does not equal the requested `room`, a
     malformed `first_seq`/`last_seq` (present and not an int), or a `messages` field that is not
     a list -- these are all structural problems with the response as a whole, not with any one
-    message. A single malformed message item (missing/mistyped `seq`/`ts`/`from`/`text`, or a
-    `sig`/`nonce` present but not a string) is skipped and counted in the returned
+    message. A single malformed message item is skipped and counted in the returned
     `RoomPage.skipped_malformed` instead -- this function never raises because of one bad
-    message. `sig`/`nonce` absent (or explicitly `null`) on an item default to `""`.
+    message: missing/mistyped `seq`/`ts`/`from`/`text`, a `sig` present but not a string, or a
+    `nonce` present but of a type other than string, plain int, or `null` (a JSON `true`/`false`
+    or a float `nonce`, for instance, is skipped -- a `bool` is never treated as an int here).
+    `sig`/`nonce` absent (or explicitly `null`) on an item default to `""`. `nonce` has one more
+    wire form: for signed messages the live service sends it as a JSON **integer** (an integer
+    the posting client chose -- our own poster uses the millisecond epoch -- and signed as
+    decimal digits in the say-signed URL path); such an item parses and its
+    `RoomMessage.nonce` is stored as that integer's decimal string
+    (`str(value)`) -- the on-disk field stays a string either way, only the accepted wire type
+    widened. A JSON string `nonce` is stored as-is, unchanged from before.
     """
     if len(payload) > _MAX_PAYLOAD_BYTES:
         raise ValueError(f"room page payload exceeds {_MAX_PAYLOAD_BYTES} bytes")
@@ -170,7 +198,7 @@ def parse_room_page(payload: bytes, *, room: str, observed_at: float) -> RoomPag
                 sender=_as_str(item.get("from")),
                 text=_as_str(item.get("text")),
                 sig="" if sig_raw is None else _as_str(sig_raw),
-                nonce="" if nonce_raw is None else _as_str(nonce_raw),
+                nonce=_as_nonce_str(nonce_raw),
                 observed_at=observed_at,
             )
         except (ValueError, TypeError):
@@ -350,6 +378,7 @@ def select_rooms(
     top: int,
     active_within_s: float,
     now: float,
+    exclude: Sequence[str] = (),
 ) -> tuple[str, ...]:
     """Build a deterministic room set: `explicit` rooms first, in the order given (each must
     match the room id shape and must not be a private `p-*` id -- either violation raises
@@ -359,10 +388,22 @@ def select_rooms(
     `last_activity_ts` lies within `active_within_s` of `now`, excluding `p-*` ids and any room
     already selected via `explicit`. `top <= 0` skips reading `rooms_jsonl` entirely.
 
+    `exclude` room ids are never selected, neither from the top-N candidates nor from
+    `explicit`: every `exclude` id must match the room id shape, else `ValueError`, and an id
+    that appears in both `explicit` and `exclude` is a contradiction and also raises
+    `ValueError` -- both checks happen before anything is read from `rooms_jsonl`, exactly like
+    an invalid or private `explicit` id.
+
     NOT guaranteed: a malformed line or row in `rooms_jsonl` (bad JSON, wrong types, an invalid
     or private id) is silently excluded from the top-N candidates, never an error -- only an
-    `explicit` room fails loudly.
+    `explicit`/`exclude` id fails loudly.
     """
+    excluded: set[str] = set()
+    for room_id in exclude:
+        if not isinstance(room_id, str) or not _ROOM_ID_RE.match(room_id):
+            raise ValueError(f"invalid exclude room id: {room_id!r}")
+        excluded.add(room_id)
+
     result: list[str] = []
     seen: set[str] = set()
     for room_id in explicit:
@@ -370,6 +411,8 @@ def select_rooms(
             raise ValueError(f"invalid room id: {room_id!r}")
         if room_id.startswith("p-"):
             raise ValueError(f"refusing private room id: {room_id!r}")
+        if room_id in excluded:
+            raise ValueError(f"room id {room_id!r} is both explicit and excluded")
         if room_id in seen:
             continue
         seen.add(room_id)
@@ -392,7 +435,12 @@ def select_rooms(
                 candidate = row.get("id")
                 if not isinstance(candidate, str) or not _ROOM_ID_RE.match(candidate):
                     continue
-                if candidate.startswith("p-") or candidate in seen or candidate in candidate_ids:
+                if (
+                    candidate.startswith("p-")
+                    or candidate in seen
+                    or candidate in candidate_ids
+                    or candidate in excluded
+                ):
                     continue
                 message_count_seen = row.get("message_count_seen")
                 last_activity_ts = row.get("last_activity_ts")

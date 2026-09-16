@@ -62,19 +62,28 @@ from openagentsearch.sources.technocore_messages import (  # noqa: E402
 
 DEFAULT_BASE_URL = "https://technocore.chat"
 USER_AGENT = "OpenAgentSearch-crawler/1.0"
-TIMEOUT_S = 10.0
+DEFAULT_TIMEOUT_S = 45.0
+DEFAULT_RETRIES = 2
+DEFAULT_RETRY_BACKOFF_S = 5.0
 MAX_BYTES = 5_000_000
 SECONDS_PER_DAY = 86400.0
 
 
 @dataclass(frozen=True)
 class SweepReport:
-    """What one `run_sweep()` call did, across every room it was given."""
+    """What one `run_sweep()` call did, across every room it was given.
+
+    `retries` is the total number of *retry* attempts made across every room in this sweep (a
+    room whose first request succeeds contributes 0; a room that succeeds on its second attempt
+    contributes 1; a room that exhausts `retries` attempts before giving up contributes exactly
+    `retries`) -- it does not count each room's own first attempt.
+    """
 
     rooms: int
     new: int
     duplicates: int
     gaps: int
+    retries: int
     errors: tuple[tuple[str, str], ...]
     seconds: float
 
@@ -94,6 +103,61 @@ def _room_url(base_url: str, room: str, limit: int, since: int) -> str:
     return url
 
 
+def _fetch_with_retries(
+    fetch: Fetcher,
+    url: str,
+    *,
+    timeout_s: float,
+    max_bytes: int,
+    user_agent: str,
+    retries: int,
+    retry_backoff_s: float,
+    sleep: Callable[[float], None],
+) -> tuple[FetchResponse | None, str | None, int]:
+    """GET `url` via `fetch`, retrying after a transport failure (`fetch` raised) or a response
+    whose status is 5xx or 429; any other non-200 status is returned at once, never retried. Up
+    to `retries` additional attempts are made after the first (so at most `retries + 1` requests
+    total), all against the identical `url`. Before attempt `k` (`k` = 1..`retries`) sleeps
+    `retry_backoff_s * k` via the injected `sleep`.
+
+    Returns `(response, error, retries_used)`: on success `response` is the `FetchResponse` and
+    `error` is `None`; on total failure `response` is `None` and `error` names the last failure
+    and the attempt count (e.g. `"http 503 after 3 attempts"` or `"TimeoutError: timed out after
+    3 attempts"`) -- except a non-retryable non-200 status, whose `error` is just `"http NNN"`
+    (one attempt, never phrased with an attempt count). `retries_used` is the number of retry
+    attempts actually made (0 when the first attempt already decided the outcome).
+
+    A negative `retries` is treated as `0` (a single attempt, no retries) rather than making the
+    attempt loop empty -- callers (in particular the `--retries` CLI flag, an unbounded `int`)
+    must not be able to skip the request entirely and hit the "unreachable" branch below. A
+    negative `retry_backoff_s` is treated as `0.0` (retry without waiting) for the same reason:
+    `time.sleep` refuses a negative argument, and a bad flag value must not abort a sweep.
+    """
+    retries = max(retries, 0)
+    retry_backoff_s = max(retry_backoff_s, 0.0)
+    for attempt_index in range(retries + 1):
+        if attempt_index > 0:
+            sleep(retry_backoff_s * attempt_index)
+        attempts_so_far = attempt_index + 1
+        try:
+            response = fetch(url, timeout_s, max_bytes, user_agent)
+        except Exception as exc:  # transport failure: always retryable
+            if attempt_index == retries:
+                error = f"{type(exc).__name__}: {exc}"
+                return None, f"{error} after {attempts_so_far} attempts", attempt_index
+            continue
+        if response.status == 200:
+            return response, None, attempt_index
+        if response.status == 429 or response.status >= 500:
+            if attempt_index == retries:
+                error = f"http {response.status}"
+                return None, f"{error} after {attempts_so_far} attempts", attempt_index
+            continue
+        # any other non-200 (4xx, 3xx): recorded at once, never retried
+        return None, f"http {response.status}", attempt_index
+    raise AssertionError("unreachable: the loop above always returns")
+
+
 def run_sweep(
     rooms: Sequence[str],
     *,
@@ -103,19 +167,25 @@ def run_sweep(
     sleep: Callable[[float], None] = time.sleep,
     interval_s: float = 1.0,
     limit: int = 200,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+    retries: int = DEFAULT_RETRIES,
+    retry_backoff_s: float = DEFAULT_RETRY_BACKOFF_S,
     base_url: str = DEFAULT_BASE_URL,
 ) -> SweepReport:
     """One sweep over `rooms`, in order, `interval_s` seconds apart against one host: GET each
-    room's page since its logged `last_seq`, parse it, and append what is new. A `p-*` room (which
-    should never reach this function -- `select_rooms` and the CLI both refuse it earlier) is
-    never requested; a non-200 response, a transport failure, or a parse failure is recorded per
-    room in `SweepReport.errors` and never aborts the sweep. This is the testable core: `main()`
-    only parses arguments and wires `urllib_fetch` (with `Accept: application/json`) as `fetch`.
+    room's page since its logged `last_seq` (retrying per `_fetch_with_retries` -- see that
+    docstring for exactly which failures are retried and how the backoff is timed), parse it,
+    and append what is new. A `p-*` room (which should never reach this function -- `select_rooms`
+    and the CLI both refuse it earlier) is never requested; a non-200 response (after any
+    retries), a transport failure (after any retries), or a parse failure is recorded per room in
+    `SweepReport.errors` and never aborts the sweep. This is the testable core: `main()` only
+    parses arguments and wires `urllib_fetch` (with `Accept: application/json`) as `fetch`.
     """
     start = clock()
     total_new = 0
     total_duplicates = 0
     total_gaps = 0
+    total_retries = 0
     errors: dict[str, str] = {}
 
     for index, room in enumerate(rooms):
@@ -127,14 +197,21 @@ def run_sweep(
 
         since = log.last_seq(room)
         url = _room_url(base_url, room, limit, since)
-        try:
-            response: FetchResponse = fetch(url, TIMEOUT_S, MAX_BYTES, USER_AGENT)
-        except Exception as exc:  # transport failure: record, never fatal to the sweep
-            errors[room] = f"{type(exc).__name__}: {exc}"
+        response, error, retries_used = _fetch_with_retries(
+            fetch,
+            url,
+            timeout_s=timeout_s,
+            max_bytes=MAX_BYTES,
+            user_agent=USER_AGENT,
+            retries=retries,
+            retry_backoff_s=retry_backoff_s,
+            sleep=sleep,
+        )
+        total_retries += retries_used
+        if error is not None:
+            errors[room] = error
             continue
-        if response.status != 200:
-            errors[room] = f"http {response.status}"
-            continue
+        assert response is not None  # _fetch_with_retries: exactly one of response/error is set
 
         try:
             page = parse_room_page(response.body, room=room, observed_at=clock())
@@ -153,6 +230,7 @@ def run_sweep(
         new=total_new,
         duplicates=total_duplicates,
         gaps=total_gaps,
+        retries=total_retries,
         errors=tuple(sorted(errors.items())),
         seconds=clock() - start,
     )
@@ -164,6 +242,7 @@ def _report_to_json(report: SweepReport) -> dict[str, object]:
         "new": report.new,
         "duplicates": report.duplicates,
         "gaps": report.gaps,
+        "retries": report.retries,
         "errors": dict(report.errors),
         "seconds": report.seconds,
     }
@@ -174,6 +253,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", required=True)
     parser.add_argument("--rooms-jsonl", required=True)
     parser.add_argument("--room", action="append", default=[], dest="rooms")
+    parser.add_argument("--exclude", action="append", default=[], dest="exclude")
     parser.add_argument("--top", type=int, default=20)
     parser.add_argument("--active-within-days", type=float, default=7.0)
     parser.add_argument("--interval", type=float, default=1.0)
@@ -183,6 +263,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sleep", type=float, default=300.0)
     parser.add_argument("--max-runtime", type=float, default=3600.0)
     parser.add_argument("--limit", type=int, default=200)
+    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_S)
+    parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES)
+    parser.add_argument("--retry-backoff", type=float, default=DEFAULT_RETRY_BACKOFF_S)
     parser.add_argument(
         "--base-url",
         default=DEFAULT_BASE_URL,
@@ -195,11 +278,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Parse arguments, build the room set, run one sweep (`--once`, the default) or repeat
     sweeps `--sleep` seconds apart until `--max-runtime` elapses or a `STOP` file appears in
     `--root` (`--loop`), and print one compact JSON report line per sweep to stdout. Returns 0 on
-    a normal stop. An invalid `--room` (bad shape, or a private `p-*` id) is refused before any
-    network access with exit code 2 and a JSON `{"error": "..."}` line on stderr; any other
-    unexpected exception exits 1 with the same error-line shape. Argument-parsing failures (a
-    missing required flag, `--once`/`--loop` both given) exit 2 directly via argparse and never
-    reach this function's return statement.
+    a normal stop. An invalid or private `--room`, or a malformed or contradictory `--exclude`
+    (an id also given as `--room`), is refused before any network access with exit code 2 and a
+    JSON `{"error": "..."}` line on stderr; any other unexpected exception exits 1 with the same
+    error-line shape. Argument-parsing failures (a missing required flag, `--once`/`--loop` both
+    given) exit 2 directly via argparse and never reach this function's return statement.
     """
     args = _build_parser().parse_args(argv)
     root = Path(args.root)
@@ -215,6 +298,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             top=args.top,
             active_within_s=active_within_s,
             now=clock(),
+            exclude=tuple(args.exclude),
         )
     except ValueError as exc:
         print(json.dumps({"error": str(exc)}, separators=(",", ":")), file=sys.stderr, flush=True)
@@ -235,7 +319,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             while True:
                 report = run_sweep(
                     rooms, log=log, fetch=fetch, clock=clock, sleep=sleep,
-                    interval_s=args.interval, limit=args.limit, base_url=args.base_url,
+                    interval_s=args.interval, limit=args.limit, timeout_s=args.timeout,
+                    retries=args.retries, retry_backoff_s=args.retry_backoff,
+                    base_url=args.base_url,
                 )
                 print(json.dumps(_report_to_json(report), separators=(",", ":")), flush=True)
                 if (root / "STOP").exists():
@@ -247,7 +333,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         report = run_sweep(
             rooms, log=log, fetch=fetch, clock=clock, sleep=sleep,
-            interval_s=args.interval, limit=args.limit, base_url=args.base_url,
+            interval_s=args.interval, limit=args.limit, timeout_s=args.timeout,
+            retries=args.retries, retry_backoff_s=args.retry_backoff,
+            base_url=args.base_url,
         )
         print(json.dumps(_report_to_json(report), separators=(",", ":")), flush=True)
         return 0

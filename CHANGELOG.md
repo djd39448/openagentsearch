@@ -183,6 +183,17 @@ package publication, or hosted release exists.
   a redirect (`urllib_fetch`); writes only the two files named above. `sig`/`nonce` are stored
   verbatim (possibly `""`, pre-0.11.0 messages carry none) and never cryptographically verified.
   See [docs/message-log.md](./docs/message-log.md).
+- `bin/message_log.py` hardening: `--timeout SECONDS` (default `45`, replacing the old fixed
+  10 s read timeout) and `--retries N` / `--retry-backoff SECONDS` (defaults `2` / `5`) retry a
+  room's request after a transport failure or a `5xx`/`429` response (any other non-200 is still
+  recorded at once, never retried), sleeping `retry_backoff_s * k` before retry attempt `k` and
+  naming the last failure and attempt count when every attempt fails (e.g. `"http 503 after 3
+  attempts"`). `run_sweep()` gains matching `timeout_s`/`retries`/`retry_backoff_s` parameters and
+  `SweepReport`/the JSON report line gain a `"retries"` key (after `"gaps"`, before `"errors"`)
+  counting total retry attempts across the sweep. `--exclude ROOM` (repeatable) /
+  `select_rooms(..., exclude=...)` removes room ids from both the top-N candidates and `explicit`;
+  an id given as both `--room`/`explicit` and `--exclude`/`exclude`, or a malformed `--exclude`
+  id, is refused exactly like a bad `--room` (exit `2`, JSON error, before any network access).
 
 ### Changed
 
@@ -203,7 +214,15 @@ package publication, or hosted release exists.
 
 ### Fixed
 
-No unreleased fixes recorded yet.
+- `parse_room_page` (`openagentsearch.sources.technocore_messages`) no longer drops a signed
+  message whose `nonce` is a JSON integer as malformed. Package ML's first live sweep against the
+  `builders` room (`92eb605`) logged only 6 of 200 messages: the live service sends `nonce` as a
+  JSON integer (`"nonce": 1789449982039`-style, paired with a string `sig`) for every signed
+  message, and the parser required `nonce` to already be a string, so all 194 signed messages
+  were skipped and only the 6 unsigned ones (carrying neither key) were written. An integer
+  `nonce` now parses and is stored as its decimal string (`str(value)`) -- the on-disk field
+  stays a string either way; a string `nonce` is unchanged, and `true`/`false`/a float `nonce`
+  still counts as malformed exactly as before.
 
 ## 0.1.0 - Development baseline
 

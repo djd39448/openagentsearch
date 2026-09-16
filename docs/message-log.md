@@ -11,8 +11,9 @@ only counts and timestamps.
 ## The command
 
 ```
-python bin/message_log.py --root DIR --rooms-jsonl PATH [--room ID ...] [--top 20]
-    [--active-within-days 7] [--interval 1.0] [--limit 200]
+python bin/message_log.py --root DIR --rooms-jsonl PATH [--room ID ...] [--exclude ID ...]
+    [--top 20] [--active-within-days 7] [--interval 1.0] [--limit 200]
+    [--timeout 45] [--retries 2] [--retry-backoff 5]
     [--once | --loop --sleep 300 --max-runtime 3600]
 ```
 
@@ -22,6 +23,10 @@ python bin/message_log.py --root DIR --rooms-jsonl PATH [--room ID ...] [--top 2
   than `0`.
 - `--room ID` (repeatable) -- explicit rooms to poll regardless of the directory, in the order
   given. A `p-*` id here is refused (exit `2`, JSON error on stderr) before any network access.
+- `--exclude ID` (repeatable) -- room ids that are never selected, neither from `--room` nor from
+  the `--rooms-jsonl` top-N candidates. An id given as both `--room` and `--exclude`, or a
+  malformed `--exclude` id, is refused the same way a bad `--room` is: exit `2`, JSON error on
+  stderr, before any network access.
 - `--top N` (default `20`) -- how many additional rooms to pick from `--rooms-jsonl`, ranked by
   `message_count_seen` descending (ties broken by room id, for a deterministic result), among
   rooms whose `last_activity_ts` is within `--active-within-days` of now. `p-*` rooms are always
@@ -29,6 +34,15 @@ python bin/message_log.py --root DIR --rooms-jsonl PATH [--room ID ...] [--top 2
 - `--interval SECONDS` (default `1.0`) -- minimum spacing between requests within one sweep; one
   room at a time, one host.
 - `--limit N` (default `200`) -- the `limit=` query parameter sent to the room-page endpoint.
+- `--timeout SECONDS` (default `45`) -- the read timeout passed straight to the fetcher for every
+  request (including retries).
+- `--retries N` (default `2`) -- additional attempts made for one room's request after a
+  transport failure or a `5xx`/`429` response; any other non-200 status (`4xx`, `3xx`) is
+  recorded at once and never retried. Before retry attempt `k` (`k` = 1..`--retries`) the sweep
+  sleeps `--retry-backoff * k` seconds. The URL is identical across every attempt (same `since`).
+  When every attempt for a room fails, the recorded error names the last failure and the total
+  attempt count, e.g. `"http 503 after 3 attempts"`.
+- `--retry-backoff SECONDS` (default `5`) -- the backoff multiplier used by `--retries` above.
 - `--once` (the default if neither is given) -- one sweep, then exit `0`.
 - `--loop` -- repeat sweeps `--sleep` seconds apart until `--max-runtime` seconds have elapsed
   overall, or until a `STOP` file appears in `--root`; one sweep always completes before that
@@ -39,13 +53,15 @@ python bin/message_log.py --root DIR --rooms-jsonl PATH [--room ID ...] [--top 2
 Each sweep prints one compact JSON line to stdout:
 
 ```json
-{"rooms": 3, "new": 42, "duplicates": 5, "gaps": 0, "errors": {}, "seconds": 1.7}
+{"rooms": 3, "new": 42, "duplicates": 5, "gaps": 0, "retries": 1, "errors": {}, "seconds": 1.7}
 ```
 
-`errors` maps a room id to a short reason (a non-200 status, a transport failure, a parse
-failure, or a refused private room) -- one room's error never aborts the sweep for the others.
-Exit codes: `0` on a normal stop, `2` for a bad `--room` (invalid shape or private) with a JSON
-`{"error": "..."}` line on stderr (argument-parsing failures such as a missing required flag
+`retries` is the total number of retry attempts made across every room in this sweep (a room
+whose first request succeeds contributes `0`). `errors` maps a room id to a short reason (a
+non-200 status after any retries, a transport failure after any retries, a parse failure, or a
+refused private room) -- one room's error never aborts the sweep for the others. Exit codes: `0`
+on a normal stop, `2` for a bad/private `--room` or a malformed/contradictory `--exclude` with a
+JSON `{"error": "..."}` line on stderr (argument-parsing failures such as a missing required flag
 exit `2` directly via `argparse` before reaching this check), `1` for any other unexpected
 exception (same error-line shape).
 
@@ -61,7 +77,11 @@ Everything lives under `--root`; these two locations are the only files this too
 
 `sig`/`nonce` are `""` for messages that carried none (pre-0.11.0 technocore.chat messages have
 no signature at all) -- never omitted, never fabricated. `observed_at` is when this poller saw
-the message, not the server's own `ts`.
+the message, not the server's own `ts`. For signed messages the live service sends `nonce` as a
+JSON **integer** (an integer the posting client chose -- our own poster uses the millisecond
+epoch -- and signed as decimal digits); `nonce` here is always a string, so an integer wire value
+is stored as its decimal string
+(`str(value)`) -- a JSON string `nonce` is stored as-is, unchanged.
 
 **`message-log-state.json`** -- one JSON object, written atomically (temp file + `os.replace`):
 

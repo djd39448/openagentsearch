@@ -58,16 +58,27 @@ def _no_sleep(_seconds: float) -> None:
     pass
 
 
+class _SleepRecorder:
+    """Records every `sleep` duration requested, in order, without actually sleeping."""
+
+    def __init__(self) -> None:
+        self.calls: list[float] = []
+
+    def __call__(self, seconds: float) -> None:
+        self.calls.append(seconds)
+
+
 class _QueueFetcher:
-    """Records every URL requested (in order) and answers from a per-URL FIFO queue. Raises if a
-    URL is requested that nothing queued -- catches a query-string mistake immediately rather
-    than hanging or returning a confusing empty body."""
+    """Records every URL requested (in order) and answers from a per-URL FIFO queue. A queued
+    entry may be a `FetchResponse` (returned) or an `Exception` instance (raised), so retry
+    scenarios can be scripted. Raises if a URL is requested that nothing queued -- catches a
+    query-string mistake immediately rather than hanging or returning a confusing empty body."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
-        self._queues: dict[str, list[FetchResponse]] = {}
+        self._queues: dict[str, list[FetchResponse | Exception]] = {}
 
-    def queue(self, url: str, response: FetchResponse) -> None:
+    def queue(self, url: str, response: FetchResponse | Exception) -> None:
         self._queues.setdefault(url, []).append(response)
 
     def __call__(
@@ -77,7 +88,10 @@ class _QueueFetcher:
         pending = self._queues.get(url)
         if not pending:
             raise AssertionError(f"unexpected URL requested (nothing queued): {url}")
-        return pending.pop(0)
+        item = pending.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
 
 
 # ============================================================ 5a. run_sweep, injected fetcher
@@ -198,6 +212,257 @@ def test_run_sweep_never_requests_a_private_room(tmp_path):
     assert fetcher.calls == []
     assert "p-secret" in dict(report.errors)
     assert report.new == 0
+
+
+# ================================================= 5a-retry. run_sweep retries and timeout_s
+
+
+def test_run_sweep_retries_after_one_transport_failure_then_succeeds(tmp_path):
+    log = MessageLog(tmp_path)
+    fetcher = _QueueFetcher()
+    url = "https://fake.technocore.test/r/room-a?format=json&limit=200"
+    fetcher.queue(url, OSError("connection reset"))
+    fetcher.queue(
+        url,
+        FetchResponse(200, "application/json", _payload_bytes("room-a", 1, 1, [_msg(1)]), False),
+    )
+    sleeps = _SleepRecorder()
+
+    report = message_log.run_sweep(
+        ["room-a"], log=log, fetch=fetcher, clock=_FakeClock(), sleep=sleeps,
+        interval_s=0.0, base_url="https://fake.technocore.test", retries=2, retry_backoff_s=5.0,
+    )
+    assert fetcher.calls == [url, url]
+    assert report.errors == ()
+    assert report.retries == 1
+    assert report.new == 1
+    assert sleeps.calls == [5.0]  # backoff_s * k for k=1 (the one retry actually needed)
+
+
+def test_run_sweep_retries_twice_after_503_503_then_succeeds(tmp_path):
+    log = MessageLog(tmp_path)
+    fetcher = _QueueFetcher()
+    url = "https://fake.technocore.test/r/room-a?format=json&limit=200"
+    fetcher.queue(url, FetchResponse(503, "text/plain", b"nope", False))
+    fetcher.queue(url, FetchResponse(503, "text/plain", b"nope", False))
+    fetcher.queue(
+        url,
+        FetchResponse(200, "application/json", _payload_bytes("room-a", 1, 1, [_msg(1)]), False),
+    )
+    sleeps = _SleepRecorder()
+
+    report = message_log.run_sweep(
+        ["room-a"], log=log, fetch=fetcher, clock=_FakeClock(), sleep=sleeps,
+        interval_s=0.0, base_url="https://fake.technocore.test", retries=2, retry_backoff_s=1.0,
+    )
+    assert fetcher.calls == [url, url, url]
+    assert report.errors == ()
+    assert report.retries == 2
+    assert sleeps.calls == [1.0, 2.0]  # backoff_s * 1, then backoff_s * 2
+
+
+def test_run_sweep_exhausts_retries_with_identical_url_and_records_attempt_count(tmp_path):
+    log = MessageLog(tmp_path)
+    fetcher = _QueueFetcher()
+    url = "https://fake.technocore.test/r/room-a?format=json&limit=200"
+    for _ in range(3):
+        fetcher.queue(url, FetchResponse(503, "text/plain", b"nope", False))
+
+    report = message_log.run_sweep(
+        ["room-a"], log=log, fetch=fetcher, clock=_FakeClock(), sleep=_no_sleep,
+        interval_s=0.0, base_url="https://fake.technocore.test", retries=2, retry_backoff_s=0.1,
+    )
+    assert fetcher.calls == [url, url, url]
+    assert dict(report.errors) == {"room-a": "http 503 after 3 attempts"}
+    assert report.retries == 2
+    assert report.new == 0
+
+
+def test_run_sweep_non_5xx_429_status_is_recorded_at_once_without_retry(tmp_path):
+    log = MessageLog(tmp_path)
+    fetcher = _QueueFetcher()
+    url = "https://fake.technocore.test/r/room-a?format=json&limit=200"
+    fetcher.queue(url, FetchResponse(404, "text/plain", b"missing", False))
+
+    report = message_log.run_sweep(
+        ["room-a"], log=log, fetch=fetcher, clock=_FakeClock(), sleep=_no_sleep,
+        interval_s=0.0, base_url="https://fake.technocore.test", retries=2, retry_backoff_s=5.0,
+    )
+    assert fetcher.calls == [url]  # exactly one request: 404 is never retried
+    assert dict(report.errors) == {"room-a": "http 404"}
+    assert report.retries == 0
+
+
+def test_run_sweep_with_retries_zero_records_a_transport_failure_after_one_attempt(tmp_path):
+    log = MessageLog(tmp_path)
+    fetcher = _QueueFetcher()
+    url = "https://fake.technocore.test/r/room-a?format=json&limit=200"
+    fetcher.queue(url, TimeoutError("timed out"))
+
+    report = message_log.run_sweep(
+        ["room-a"], log=log, fetch=fetcher, clock=_FakeClock(), sleep=_no_sleep,
+        interval_s=0.0, base_url="https://fake.technocore.test", retries=0, retry_backoff_s=5.0,
+    )
+    assert fetcher.calls == [url]
+    assert dict(report.errors) == {"room-a": "TimeoutError: timed out after 1 attempts"}
+    assert report.retries == 0
+
+
+def test_run_sweep_negative_retries_is_treated_as_zero_and_never_raises(tmp_path):
+    # regression: range(retries + 1) is empty for retries < 0, which used to fall through to
+    # `_fetch_with_retries`'s "unreachable" AssertionError instead of making the one request.
+    log = MessageLog(tmp_path)
+    fetcher = _QueueFetcher()
+    url = "https://fake.technocore.test/r/room-a?format=json&limit=200"
+    fetcher.queue(
+        url,
+        FetchResponse(200, "application/json", _payload_bytes("room-a", 1, 1, [_msg(1)]), False),
+    )
+
+    report = message_log.run_sweep(
+        ["room-a"], log=log, fetch=fetcher, clock=_FakeClock(), sleep=_no_sleep,
+        interval_s=0.0, base_url="https://fake.technocore.test", retries=-1, retry_backoff_s=5.0,
+    )
+    assert fetcher.calls == [url]  # exactly one request, same as retries=0
+    assert report.errors == ()
+    assert report.retries == 0
+    assert report.new == 1
+
+
+def test_run_sweep_negative_retries_records_failure_after_one_attempt(tmp_path):
+    log = MessageLog(tmp_path)
+    fetcher = _QueueFetcher()
+    url = "https://fake.technocore.test/r/room-a?format=json&limit=200"
+    fetcher.queue(url, TimeoutError("timed out"))
+
+    report = message_log.run_sweep(
+        ["room-a"], log=log, fetch=fetcher, clock=_FakeClock(), sleep=_no_sleep,
+        interval_s=0.0, base_url="https://fake.technocore.test", retries=-5, retry_backoff_s=5.0,
+    )
+    assert fetcher.calls == [url]
+    assert dict(report.errors) == {"room-a": "TimeoutError: timed out after 1 attempts"}
+    assert report.retries == 0
+
+
+def test_run_sweep_negative_backoff_is_treated_as_zero_and_still_retries(tmp_path):
+    # `time.sleep` refuses a negative argument; a bad --retry-backoff must not abort the sweep.
+    log = MessageLog(tmp_path)
+    fetcher = _QueueFetcher()
+    url = "https://fake.technocore.test/r/room-a?format=json&limit=200"
+    fetcher.queue(url, TimeoutError("timed out"))
+    fetcher.queue(
+        url,
+        FetchResponse(200, "application/json", _payload_bytes("room-a", 1, 1, [_msg(1)]), False),
+    )
+    slept: list[float] = []
+
+    report = message_log.run_sweep(
+        ["room-a"], log=log, fetch=fetcher, clock=_FakeClock(), sleep=slept.append,
+        interval_s=0.0, base_url="https://fake.technocore.test", retries=1, retry_backoff_s=-3.0,
+    )
+    assert fetcher.calls == [url, url]
+    assert slept == [0.0]
+    assert report.errors == ()
+    assert report.retries == 1
+    assert report.new == 1
+
+
+def test_run_sweep_timeout_s_default_and_override_are_passed_to_the_fetcher(tmp_path):
+    log = MessageLog(tmp_path)
+    recorded: list[float] = []
+
+    def _recording_fetch(
+        url: str, timeout_s: float, max_bytes: int, user_agent: str
+    ) -> FetchResponse:
+        recorded.append(timeout_s)
+        body = _payload_bytes("room-a", 1, 1, [_msg(1)])
+        return FetchResponse(200, "application/json", body, False)
+
+    message_log.run_sweep(
+        ["room-a"], log=log, fetch=_recording_fetch, clock=_FakeClock(), sleep=_no_sleep,
+        interval_s=0.0, base_url="https://fake.technocore.test",
+    )
+    assert recorded == [45.0]  # run_sweep's own default, matching main()'s --timeout default
+
+    recorded.clear()
+    log2 = MessageLog(tmp_path)
+    message_log.run_sweep(
+        ["room-a"], log=log2, fetch=_recording_fetch, clock=_FakeClock(), sleep=_no_sleep,
+        interval_s=0.0, base_url="https://fake.technocore.test", timeout_s=7.0,
+    )
+    assert recorded == [7.0]
+
+
+def test_cli_timeout_flag_flows_to_the_fetcher_default_then_override(tmp_path, monkeypatch):
+    recorded: list[float] = []
+
+    def _recording_fetch(
+        url: str, timeout_s: float, max_bytes: int, user_agent: str
+    ) -> FetchResponse:
+        recorded.append(timeout_s)
+        body = _payload_bytes("room-a", 1, 1, [_msg(1)])
+        return FetchResponse(200, "application/json", body, False)
+
+    monkeypatch.setattr(message_log, "_fetch_json", _recording_fetch)
+
+    exit_code = message_log.main([
+        "--root", str(tmp_path / "out1"), "--rooms-jsonl", str(tmp_path / "unused.jsonl"),
+        "--room", "room-a", "--top", "0", "--once", "--interval", "0",
+    ])
+    assert exit_code == 0
+    assert recorded == [45.0]  # main()'s own --timeout default
+
+    recorded.clear()
+    exit_code = message_log.main([
+        "--root", str(tmp_path / "out2"), "--rooms-jsonl", str(tmp_path / "unused.jsonl"),
+        "--room", "room-a", "--top", "0", "--once", "--interval", "0", "--timeout", "7",
+    ])
+    assert exit_code == 0
+    assert recorded == [7.0]
+
+
+# ============================================================= 5a-exclude. --exclude flag
+
+
+def test_exclude_flag_drops_a_top_n_candidate_from_the_loopback_requests(tmp_path):
+    rooms_path = tmp_path / "rooms.jsonl"
+    rows = [
+        {"id": "events", "message_count_seen": 500, "last_activity_ts": 0},
+        {"id": "builders", "message_count_seen": 10, "last_activity_ts": 0},
+    ]
+    with rooms_path.open("w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row) + "\n")
+
+    server = _Server({
+        "/r/builders?format=json&limit=200": _payload_bytes("builders", 1, 1, [_msg(1)]),
+    })
+    try:
+        root = tmp_path / "out"
+        exit_code = message_log.main([
+            "--root", str(root), "--rooms-jsonl", str(rooms_path),
+            "--top", "1", "--exclude", "events", "--once", "--interval", "0",
+            "--active-within-days", "999999999", "--base-url", server.base,
+        ])
+        assert exit_code == 0
+        assert server.seen == ["/r/builders?format=json&limit=200"]  # never events
+    finally:
+        server.stop()
+
+
+def test_room_and_exclude_same_id_exits_2_with_json_error_and_no_request(tmp_path, capsys):
+    exit_code = message_log.main([
+        "--root", str(tmp_path), "--rooms-jsonl", str(tmp_path / "rooms.jsonl"),
+        "--room", "x", "--exclude", "x", "--top", "0", "--once",
+    ])
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    stderr_lines = [line for line in captured.err.splitlines() if line.strip()]
+    assert len(stderr_lines) == 1
+    error = json.loads(stderr_lines[0])
+    assert set(error) == {"error"}
+    assert not (tmp_path / "message-log-state.json").exists()
 
 
 # ==================================================================== 6a. bad --room exits 2
@@ -341,10 +606,32 @@ def test_once_over_loopback_server_stdout_is_one_compact_json_report_line(tmp_pa
         assert len(stdout_lines) == 1
         report = json.loads(stdout_lines[0])
         assert report == {
-            "rooms": 1, "new": 1, "duplicates": 0, "gaps": 0, "errors": {},
+            "rooms": 1, "new": 1, "duplicates": 0, "gaps": 0, "retries": 0, "errors": {},
             "seconds": report["seconds"],
         }
         assert isinstance(report["seconds"], (int, float))
+    finally:
+        server.stop()
+
+
+def test_report_json_line_has_retries_key_between_gaps_and_errors(tmp_path, capsys):
+    server = _Server({
+        "/r/solo-room?format=json&limit=200": _payload_bytes(
+            "solo-room", 1, 1, [_msg(1, text="only message")]
+        ),
+    })
+    try:
+        exit_code = message_log.main([
+            "--root", str(tmp_path / "out"), "--rooms-jsonl", str(tmp_path / "unused.jsonl"),
+            "--room", "solo-room", "--top", "0", "--once", "--interval", "0",
+            "--base-url", server.base,
+        ])
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        stdout_lines = [line for line in captured.out.splitlines() if line.strip()]
+        assert len(stdout_lines) == 1
+        keys = json.loads(stdout_lines[0], object_pairs_hook=lambda pairs: [k for k, _ in pairs])
+        assert keys == ["rooms", "new", "duplicates", "gaps", "retries", "errors", "seconds"]
     finally:
         server.stop()
 
