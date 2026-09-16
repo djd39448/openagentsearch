@@ -1,0 +1,264 @@
+[
+  {
+    "input": "hello world",
+    "tokens": [
+      "hello",
+      "world"
+    ]
+  },
+  {
+    "input": "Hello World",
+    "tokens": [
+      "hello",
+      "world"
+    ]
+  },
+  {
+    "input": "The quick brown fox jumps over the lazy dog!",
+    "tokens": [
+      "the",
+      "quick",
+      "brown",
+      "fox",
+      "jumps",
+      "over",
+      "the",
+      "lazy",
+      "dog"
+    ]
+  },
+  {
+    "input": "min_force_open_escrow_for_failed_ack",
+    "tokens": [
+      "min_force_open_escrow_for_failed_ack",
+      "min",
+      "force",
+      "open",
+      "escrow",
+      "for",
+      "failed",
+      "ack"
+    ]
+  },
+  {
+    "input": "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf",
+    "tokens": [
+      "did",
+      "key"
+    ]
+  },
+  {
+    "input": "off-chain",
+    "tokens": [
+      "off",
+      "chain"
+    ]
+  },
+  {
+    "input": "state-of-the-art",
+    "tokens": [
+      "state",
+      "of",
+      "the",
+      "art"
+    ]
+  },
+  {
+    "input": "TÜRKÇE",
+    "tokens": [
+      "türkçe"
+    ]
+  },
+  {
+    "input": "Straße",
+    "tokens": [
+      "strasse"
+    ]
+  },
+  {
+    "input": "2026-09-16",
+    "tokens": [
+      "2026",
+      "09",
+      "16"
+    ]
+  },
+  {
+    "input": "1,234",
+    "tokens": [
+      "234"
+    ]
+  },
+  {
+    "input": "_x_",
+    "tokens": [
+      "_x_"
+    ]
+  },
+  {
+    "input": "__init__",
+    "tokens": [
+      "__init__",
+      "init"
+    ]
+  },
+  {
+    "input": "_id",
+    "tokens": [
+      "_id",
+      "id"
+    ]
+  },
+  {
+    "input": "",
+    "tokens": []
+  },
+  {
+    "input": "   ",
+    "tokens": []
+  },
+  {
+    "input": "\t\n \r",
+    "tokens": []
+  },
+  {
+    "input": "!!!???",
+    "tokens": []
+  },
+  {
+    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tokens": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ]
+  },
+  {
+    "input": "a bb",
+    "tokens": [
+      "bb"
+    ]
+  },
+  {
+    "input": "ok",
+    "tokens": [
+      "ok"
+    ]
+  },
+  {
+    "input": "I am ok",
+    "tokens": [
+      "am",
+      "ok"
+    ]
+  },
+  {
+    "input": "cat dog cat",
+    "tokens": [
+      "cat",
+      "dog",
+      "cat"
+    ]
+  },
+  {
+    "input": "v2.0.1",
+    "tokens": [
+      "v2"
+    ]
+  },
+  {
+    "input": "camelCaseIdentifier",
+    "tokens": [
+      "camelcaseidentifier"
+    ]
+  },
+  {
+    "input": "don't",
+    "tokens": [
+      "don"
+    ]
+  },
+  {
+    "input": "MAX_RETRY_COUNT",
+    "tokens": [
+      "max_retry_count",
+      "max",
+      "retry",
+      "count"
+    ]
+  },
+  {
+    "input": "ＡＢＣ０１２",
+    "tokens": [
+      "abc012"
+    ]
+  },
+  {
+    "input": "中文字符",
+    "tokens": [
+      "中文字符"
+    ]
+  },
+  {
+    "input": "日本語テキスト",
+    "tokens": [
+      "日本語テキスト"
+    ]
+  },
+  {
+    "input": "🎉🔥",
+    "tokens": []
+  },
+  {
+    "input": "hello 🎉 world",
+    "tokens": [
+      "hello",
+      "world"
+    ]
+  },
+  {
+    "input": "Привет",
+    "tokens": [
+      "привет"
+    ]
+  },
+  {
+    "input": "Ελληνικά",
+    "tokens": [
+      "ελληνικά"
+    ]
+  },
+  {
+    "input": "مرحبا",
+    "tokens": [
+      "مرحبا"
+    ]
+  },
+  {
+    "input": "multiple   spaces\t\tand\ntabs",
+    "tokens": [
+      "multiple",
+      "spaces",
+      "and",
+      "tabs"
+    ]
+  },
+  {
+    "input": "trailing_",
+    "tokens": [
+      "trailing_",
+      "trailing"
+    ]
+  },
+  {
+    "input": "_leading",
+    "tokens": [
+      "_leading",
+      "leading"
+    ]
+  },
+  {
+    "input": "a_b_c",
+    "tokens": [
+      "a_b_c"
+    ]
+  }
+]

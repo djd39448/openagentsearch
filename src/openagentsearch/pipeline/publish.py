@@ -1,8 +1,8 @@
-"""Static index export: turn one VectorStore's index manifest into two plain files an operator can
-publish (for example to a `gh-pages` branch) so any agent with an HTTP GET can read them, with no
-API server and no query language required.
+"""Static index export: turn one VectorStore's index manifest into three plain files an operator
+can publish (for example to a `gh-pages` branch) so any agent with an HTTP GET can read them, with
+no API server and no query language required.
 
-`build_static_index()` writes exactly two files under `out/index/` (plus a plain-text README):
+`build_static_index()` writes exactly three files under `out/index/` (plus a plain-text README):
 
 - `manifest.json` -- every manifest row, every status (`indexed` / `failed` / `superseded` /
   `refused`), sorted by `(source_url, doc_sha256)`. This is the full, honest bookkeeping: nothing
@@ -10,12 +10,18 @@ API server and no query language required.
 - `flop-surface.jsonl` -- one line per `indexed` row only, sorted by
   `(source_kind, source_url, doc_sha256)`, carrying a title, an optional `#section` fragment, and a
   short lexical abstract cut from the extracted text.
+- `lexical-v1.json` -- a precomputed BM25 lexical index (`openagentsearch.lexical`) over the same
+  `indexed` rows, so a reader (for example the Cloudflare Worker in package C2b) can rank queries
+  without embeddings. Unlike the two files above, this one can legitimately be ABSENT even on a
+  successful `build_static_index()` call: it is written last and its own size guard
+  (`LexicalSizeError`) is caught, not raised, leaving `manifest.json` and `flop-surface.jsonl`
+  exactly as they were written -- see `PublishReport.lexical_error`.
 
-Both files are produced from a single, already-open `VectorStore` and the same `root` directory
-`ExtractStore` writes extracted records under; nothing here fetches a URL, embeds a vector, or
-mutates the store. Writes are atomic (temp file + `os.replace`) and are performed only after every
-read that could fail (in particular, reading the manifest) has already succeeded -- so a corrupt
-store never leaves a partial or stale-but-modified file behind.
+Both index files are produced from a single, already-open `VectorStore` and the same `root`
+directory `ExtractStore` writes extracted records under; nothing here fetches a URL, embeds a
+vector, or mutates the store. Writes are atomic (temp file + `os.replace`) and are performed only
+after every read that could fail (in particular, reading the manifest) has already succeeded -- so
+a corrupt store never leaves a partial or stale-but-modified file behind.
 
 What this module does NOT guarantee:
 
@@ -25,9 +31,12 @@ What this module does NOT guarantee:
   boundary), never a summary; no language model or heuristic ranking touches it.
 - `flop-surface.jsonl` excludes every row whose manifest status is not `indexed` -- a `superseded`
   document's earlier text is visible only in `manifest.json`, never in the surface file.
-- Neither file is signed or checksummed beyond `manifest.json`'s own `db_sha256` field (the hash
-  of the source SQLite file, which lets a reader confirm which database an export came from, not
-  that the export is untampered).
+- Neither `manifest.json` nor `flop-surface.jsonl` is signed or checksummed beyond
+  `manifest.json`'s own `db_sha256` field (the hash of the source SQLite file, which lets a reader
+  confirm which database an export came from, not that the export is untampered).
+- `lexical-v1.json`, when it exists, may still be absent -- see above -- and a caller that needs
+  to know whether it was written should check `PublishReport.lexical_error` (`""` on success)
+  rather than only checking `PublishReport.lexical_bytes` (which is also `0` on failure).
 """
 
 import argparse
@@ -46,7 +55,17 @@ from urllib.parse import urlsplit
 from openagentsearch.index.manifest import STATUSES, ManifestCounts, ManifestEntry
 from openagentsearch.vector.store import VectorStore
 
+# openagentsearch.lexical.build imports _make_abstract/_read_extracted BACK from this module (see
+# their docstrings), so openagentsearch.lexical.build cannot be imported at this module's top
+# level without a circular import; build_static_index() imports it lazily, at call time, once
+# this module has already finished initializing.
+
 SCHEMA_ID = "openagentsearch.static-index/1"
+
+# The lexical index's own size guard (see openagentsearch.lexical.build.write_lexical_index). A
+# module-level constant, not a build_static_index() parameter, so a test can monkeypatch it to
+# force LexicalSizeError without changing this module's public signature.
+_LEXICAL_MAX_BYTES = 24 * 1024 * 1024
 
 _README_TEXT = """\
 OpenAgentSearch static index export
@@ -56,9 +75,11 @@ manifest.json - every document the pipeline has attempted to index, one row per
   doc_sha256, with its status (indexed / failed / superseded / refused) and reason.
 flop-surface.jsonl - one JSON object per line, only for rows whose status is "indexed";
   "abstract" is a lexical cut of the extracted text, never a summary.
+index/lexical-v1.json - a precomputed BM25 lexical index (openagentsearch.lexical) over the
+  same indexed rows; may be absent if it exceeded its size guard (see lexical_error).
 
-Both are GET-only static artifacts: plain files an operator regenerates and publishes
-on their own schedule. No freshness is guaranteed and neither file is signed.
+These are GET-only static artifacts: plain files an operator regenerates and publishes
+on their own schedule. No freshness is guaranteed and none is signed.
 
 "superseded" documents stay in manifest.json but are excluded from
 flop-surface.jsonl -- only the current indexed document per source_url appears there.
@@ -70,7 +91,13 @@ Nothing here is a ranking, a recommendation, or an endorsement of any listed pag
 @dataclass(frozen=True)
 class PublishReport:
     """What one `build_static_index()` call wrote. `counts` is the same `ManifestCounts` the
-    manifest's own `"counts"` field is built from -- `.as_dict()` for the JSON-shaped view."""
+    manifest's own `"counts"` field is built from -- `.as_dict()` for the JSON-shaped view.
+
+    `lexical_bytes` and `lexical_error` describe the third file, `lexical-v1.json`: on success
+    `lexical_error` is `""` and `lexical_bytes` is its size; on a `LexicalSizeError` (the only
+    failure this function catches rather than raises) `lexical_bytes` is `0` and `lexical_error`
+    names the problem -- `manifest.json` and `flop-surface.jsonl` are unaffected either way.
+    """
 
     documents: int
     surface_lines: int
@@ -79,6 +106,8 @@ class PublishReport:
     surface_path: str
     db_sha256: str
     counts: ManifestCounts
+    lexical_bytes: int
+    lexical_error: str
 
 
 def _counts_from_entries(entries: Sequence[ManifestEntry]) -> ManifestCounts:
@@ -177,13 +206,17 @@ def build_static_index(
     base_url: str | None = None,
 ) -> PublishReport:
     """Read `store`'s index manifest and write `out/index/manifest.json`,
-    `out/index/flop-surface.jsonl` and `out/index/README.txt`, atomically.
+    `out/index/flop-surface.jsonl`, `out/index/README.txt` and `out/index/lexical-v1.json`,
+    atomically.
 
     Order of operations, exactly: read every manifest row (`store.manifest_entries()` -- the one
     call that can raise `ManifestCorruptionError`) -> derive counts and per-kind counts from that
-    same list (no second query) -> hash the store's SQLite file -> build both documents in memory
-    -> write all three files. Nothing under `out/` is touched until the manifest read has already
-    succeeded, so a corrupt store leaves `out/` exactly as it was found (see `_write_atomic`).
+    same list (no second query) -> hash the store's SQLite file -> build both index documents in
+    memory -> write manifest.json, flop-surface.jsonl and README.txt -> build and write
+    lexical-v1.json LAST (see `PublishReport.lexical_error` for why this one file can fail
+    without failing the whole call). Nothing under `out/` is touched until the manifest read has
+    already succeeded, so a corrupt store leaves `out/` exactly as it was found (see
+    `_write_atomic`).
 
     `generated_at` is the manifest timestamp to record (`None`, the default, means "now", read
     once via `time.time()`); passing the same `generated_at` across two calls against the same
@@ -193,7 +226,13 @@ def build_static_index(
     function makes no claim that the files are actually reachable there.
 
     `abstract_chars` bounds every `flop-surface.jsonl` abstract (see `_make_abstract`); it must be
-    a positive integer.
+    a positive integer -- the same value is passed into `build_lexical_index()` so
+    `lexical-v1.json`'s abstracts are always the identical cut, never a fixed 300 chars
+    regardless of this argument. The manifest rows and `db_sha256` read/hashed above are also
+    passed into `build_lexical_index()` unchanged (rather than it re-reading/re-hashing them), so
+    `lexical-v1.json` is guaranteed to reflect the exact same snapshot as `manifest.json` and
+    `flop-surface.jsonl`, not a second, independent read that could disagree if `store` were
+    written to concurrently.
 
     NOT guaranteed: this is a snapshot, not a live view -- a row written to `store` after this
     function reads the manifest is not reflected in the output. `root` is trusted to be the same
@@ -283,6 +322,39 @@ def build_static_index(
     _write_atomic(surface_path, surface_bytes)
     _write_atomic(readme_path, readme_text.encode("utf-8"))
 
+    # Written last, and its own size guard is caught rather than raised: manifest.json and
+    # flop-surface.jsonl above are already durable by the time this runs, and a lexical index too
+    # large to ship is a reportable condition, not a reason to fail an otherwise-good export.
+    # Imported here, not at module level -- see the note by this module's imports.
+    from openagentsearch.lexical.build import (
+        LexicalSizeError,
+        build_lexical_index,
+        write_lexical_index,
+    )
+
+    lexical_path = index_dir / "lexical-v1.json"
+    lexical_bytes = 0
+    lexical_error = ""
+    try:
+        # entries/db_sha256: the exact manifest rows and DB hash already read/computed above, so
+        # lexical-v1.json is provably built from the same snapshot as manifest.json and
+        # flop-surface.jsonl rather than a second, independent read of the (possibly concurrently
+        # written) store -- see build_lexical_index()'s docstring. abstract_chars: this call's own
+        # value, so lexical-v1.json's abstracts never diverge from flop-surface.jsonl's.
+        lexical_index, _lexical_report = build_lexical_index(
+            store=store,
+            root=root,
+            generated_at=when,
+            abstract_chars=abstract_chars,
+            entries=entries,
+            db_sha256=db_sha256,
+        )
+        lexical_bytes = write_lexical_index(
+            lexical_index, lexical_path, max_bytes=_LEXICAL_MAX_BYTES
+        )
+    except LexicalSizeError as exc:
+        lexical_error = str(exc)
+
     return PublishReport(
         documents=len(entries),
         surface_lines=len(surface_lines),
@@ -291,6 +363,8 @@ def build_static_index(
         surface_path=str(surface_path),
         db_sha256=db_sha256,
         counts=counts,
+        lexical_bytes=lexical_bytes,
+        lexical_error=lexical_error,
     )
 
 
@@ -304,6 +378,8 @@ def _report_dict(report: PublishReport) -> dict[str, object]:
         "surface_path": report.surface_path,
         "db_sha256": report.db_sha256,
         "counts": report.counts.as_dict(),
+        "lexical_bytes": report.lexical_bytes,
+        "lexical_error": report.lexical_error,
     }
 
 

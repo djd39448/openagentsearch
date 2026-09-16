@@ -1,0 +1,271 @@
+[
+  {
+    "q": "authentication",
+    "k": 5,
+    "kind": null,
+    "hits": [
+      {
+        "sha": "9cd255b20433ea8f628086980843baf18bd698237b023169afcac03b4907d498",
+        "score": 6.079656
+      }
+    ]
+  },
+  {
+    "q": "AUTHENTICATION",
+    "k": 5,
+    "kind": null,
+    "hits": [
+      {
+        "sha": "9cd255b20433ea8f628086980843baf18bd698237b023169afcac03b4907d498",
+        "score": 6.079656
+      }
+    ]
+  },
+  {
+    "q": "caching",
+    "k": 5,
+    "kind": null,
+    "hits": [
+      {
+        "sha": "7b7b86de09036cf6b14fbc67e61a7350759c4795bfcadabc0917ea3397792c19",
+        "score": 6.079656
+      }
+    ]
+  },
+  {
+    "q": "connection_timeout_error",
+    "k": 5,
+    "kind": null,
+    "hits": [
+      {
+        "sha": "1d1e223eb763a64ac1b5d749474a9cca680042b8c49d7712c31e56fe5a4f064c",
+        "score": 14.024504
+      },
+      {
+        "sha": "ac7883457fdc36d7a23db65e90242fa13ecf8a0ec29314695d5762c118943831",
+        "score": 1.323285
+      },
+      {
+        "sha": "235144f8b975b7ebcc158976b3ccf3466794a0eb871406f7ac55bd9990075c1b",
+        "score": 0.95776
+      },
+      {
+        "sha": "427708f9bd9baa093bfbfbb43a6bede050ec9edd01a36b1790cb3b1980564319",
+        "score": 0.95776
+      },
+      {
+        "sha": "f1c1bee5a7fb5c1291e0326897f403f1354e943741d7b014ab185ea5abb6201d",
+        "score": 0.95776
+      }
+    ]
+  },
+  {
+    "q": "timeout error",
+    "k": 5,
+    "kind": null,
+    "hits": [
+      {
+        "sha": "1d1e223eb763a64ac1b5d749474a9cca680042b8c49d7712c31e56fe5a4f064c",
+        "score": 7.510124
+      },
+      {
+        "sha": "ac7883457fdc36d7a23db65e90242fa13ecf8a0ec29314695d5762c118943831",
+        "score": 1.323285
+      },
+      {
+        "sha": "235144f8b975b7ebcc158976b3ccf3466794a0eb871406f7ac55bd9990075c1b",
+        "score": 0.95776
+      },
+      {
+        "sha": "427708f9bd9baa093bfbfbb43a6bede050ec9edd01a36b1790cb3b1980564319",
+        "score": 0.95776
+      },
+      {
+        "sha": "f1c1bee5a7fb5c1291e0326897f403f1354e943741d7b014ab185ea5abb6201d",
+        "score": 0.95776
+      }
+    ]
+  },
+  {
+    "q": "deployment integration",
+    "k": 5,
+    "kind": null,
+    "hits": [
+      {
+        "sha": "13635d82c6a7cedcb860d22a47108e92f2cd154b39ea80727a64c36e80d7e693",
+        "score": 8.889999
+      },
+      {
+        "sha": "761c40b75ac2a3b64aa954230047c3c7b9e451b89c1d8987c88fa8538a8c2cf3",
+        "score": 4.961563
+      }
+    ]
+  },
+  {
+    "q": "integration",
+    "k": 10,
+    "kind": "site",
+    "hits": [
+      {
+        "sha": "761c40b75ac2a3b64aa954230047c3c7b9e451b89c1d8987c88fa8538a8c2cf3",
+        "score": 4.961563
+      }
+    ]
+  },
+  {
+    "q": "integration",
+    "k": 10,
+    "kind": "github_doc",
+    "hits": [
+      {
+        "sha": "13635d82c6a7cedcb860d22a47108e92f2cd154b39ea80727a64c36e80d7e693",
+        "score": 2.7226
+      }
+    ]
+  },
+  {
+    "q": "integration",
+    "k": 10,
+    "kind": null,
+    "hits": [
+      {
+        "sha": "761c40b75ac2a3b64aa954230047c3c7b9e451b89c1d8987c88fa8538a8c2cf3",
+        "score": 4.961563
+      },
+      {
+        "sha": "13635d82c6a7cedcb860d22a47108e92f2cd154b39ea80727a64c36e80d7e693",
+        "score": 2.7226
+      }
+    ]
+  },
+  {
+    "q": "quantumfluxcapacitor",
+    "k": 5,
+    "kind": null,
+    "hits": []
+  },
+  {
+    "q": "error",
+    "k": 3,
+    "kind": null,
+    "hits": [
+      {
+        "sha": "1d1e223eb763a64ac1b5d749474a9cca680042b8c49d7712c31e56fe5a4f064c",
+        "score": 1.323285
+      },
+      {
+        "sha": "ac7883457fdc36d7a23db65e90242fa13ecf8a0ec29314695d5762c118943831",
+        "score": 1.323285
+      },
+      {
+        "sha": "235144f8b975b7ebcc158976b3ccf3466794a0eb871406f7ac55bd9990075c1b",
+        "score": 0.95776
+      }
+    ]
+  },
+  {
+    "q": "error",
+    "k": 3,
+    "kind": "site",
+    "hits": [
+      {
+        "sha": "59e2e92368b2a8042edb1f993bd5f6d611b65e0838d0f7c55320baed4a6bdbf9",
+        "score": 0.876323
+      },
+      {
+        "sha": "761c40b75ac2a3b64aa954230047c3c7b9e451b89c1d8987c88fa8538a8c2cf3",
+        "score": 0.876323
+      },
+      {
+        "sha": "bb6e2028a965b167e28f7fd175787fa936ef44eee30c2a67b53fc41446c358f0",
+        "score": 0.876323
+      }
+    ]
+  },
+  {
+    "q": "memory_leak_confirmed",
+    "k": 5,
+    "kind": null,
+    "hits": [
+      {
+        "sha": "f1c1bee5a7fb5c1291e0326897f403f1354e943741d7b014ab185ea5abb6201d",
+        "score": 15.958409
+      }
+    ]
+  },
+  {
+    "q": "null_pointer_exception",
+    "k": 3,
+    "kind": null,
+    "hits": [
+      {
+        "sha": "98a3b580cd0a8aec750cc967ba81863a2039e896d6e4411908673886c3b9e6f4",
+        "score": 13.02876
+      }
+    ]
+  },
+  {
+    "q": "pricing",
+    "k": 5,
+    "kind": null,
+    "hits": [
+      {
+        "sha": "593cedef0f7e80a51925a2dfaacd23b7a15b2fa28a3d4e79c26f3dcdb28e6078",
+        "score": 5.867619
+      }
+    ]
+  },
+  {
+    "q": "versioning",
+    "k": 5,
+    "kind": "github_doc",
+    "hits": [
+      {
+        "sha": "cc08f6844f0dfbd36c309d4442b1efa1d52b4ee6256b2eea7cd98aad85c0df80",
+        "score": 6.214398
+      }
+    ]
+  },
+  {
+    "q": "encryption compliance",
+    "k": 5,
+    "kind": "site",
+    "hits": [
+      {
+        "sha": "2299a57588b5ed4a92eea665f68dd53aa680d50e2d1c41678cdf765a904a558c",
+        "score": 6.079656
+      },
+      {
+        "sha": "debd1ed0d24d9d87335be1fa0f2a931725316e7c015a63378905abfff0903f30",
+        "score": 6.079656
+      }
+    ]
+  },
+  {
+    "q": "webhooks retrying",
+    "k": 5,
+    "kind": "room",
+    "hits": [
+      {
+        "sha": "f2276923bcdd25aa4a1a3fe35b6e527f324f857e0557493057617c3e787f8d03",
+        "score": 6.079656
+      },
+      {
+        "sha": "0609d50b08b22d4f9a9ef9faa7bf2c9095ab882d7d85b41f4d50859fb63f5ffa",
+        "score": 6.079656
+      }
+    ]
+  },
+  {
+    "q": "gateway",
+    "k": 5,
+    "kind": null,
+    "hits": []
+  },
+  {
+    "q": "review",
+    "k": 5,
+    "kind": null,
+    "hits": []
+  }
+]

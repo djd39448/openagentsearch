@@ -57,6 +57,11 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   manifest row, every status) and `flop-surface.jsonl` (one line per `indexed` document, with a
   title, an optional `#section`, and a lexical abstract); see
   [docs/static-index.md](./docs/static-index.md);
+- a precomputed lexical (BM25) index (`openagentsearch.lexical`, CLI
+  `python -m openagentsearch.pipeline.lexical --db PATH --root DIR --out DIR`), also written by
+  `pipeline.publish` next to the two files above as `lexical-v1.json`: lexical, not semantic,
+  ranking with a documented tokenizer and formula so a non-Python reader can reproduce it exactly;
+  see [docs/static-index.md](./docs/static-index.md);
 - a frozen synthetic eval set with recall@k;
 - a reproducible offline benchmark;
 - a process-level contribution sandbox and fail-closed contribution sandbox result recording;
