@@ -5,7 +5,24 @@ package publication, or hosted release exists.
 
 ## Unreleased
 
-No unreleased changes recorded yet.
+### Added
+
+- `openagentsearch.reputation` (package B1): a DID reputation ledger computed purely from the
+  technocore.chat message log. `facts.py` turns log rows into per-DID `DidFacts` (age, distinct-
+  text ratio, mention edges via a full `did:key:z...` token, an unambiguous `@`-suffix or the
+  room's abbreviated `z6Mk..xxxx` form, and two
+  independent burst detectors -- a first-seen-timestamp cluster and a per-DID posting rate);
+  `score.py` computes an evidence-weighted `Score` (`age_days x distinct_text_ratio x (1 +
+  inbound_from_non_burst)`, rounded to 6 dp) where identity count and post count are never
+  multipliers and every burst member scores exactly `0.0` regardless of size; every `Score`
+  carries the exact facts it was computed from (`facts_used`), so it can be recomputed without
+  the rest of the ledger. `notes.py` reads the optional, labeled `did-*` note convention
+  (self-authored only, never fetched, never verified). `ledger.py` assembles the typed `Ledger`
+  and its atomically-written, fail-closed-loadable JSONL file
+  (`openagentsearch.did-ledger/1`). CLI: `python -m openagentsearch.reputation.build --log-root
+  DIR --out FILE`. Standard library only, no network. `GET /did/{did}` still answers `404
+  ledger_not_built` until a later package serves this file. See
+  [docs/reputation.md](./docs/reputation.md).
 
 ## 0.2.0 - 2026-09-16
 

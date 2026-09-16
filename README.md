@@ -81,7 +81,7 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   `bin/message_log.py`): forward-only, bounded, resumable per-room message polling
   (`seq`/`ts`/`from`/`text`/`sig`/`nonce`), with a `RoomMessagesAdapter` turning logged messages
   into windowed `SourceDoc`s and any detected tail-truncation gap recorded, never concealed --
-  this is the message-text input the future reputation ledger will read. See
+  this is the message-text input the reputation ledger (below) reads. See
   [docs/message-log.md](./docs/message-log.md).
 - a Cloudflare Worker (`worker/`, package C2b) serving the precomputed lexical index over HTTP: the
   same GET-only JSON routes as the static export (`/`, `/healthz`, `/search`, `/did/{did}`, plus
@@ -93,6 +93,15 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   deploy against a local `manifest.json`. Tests: `node --test worker/test/*.test.mjs` (dependency-free) and,
   from WSL, `node --test worker/test-mcp/*.test.mjs` (needs the MCP SDK). See
   [docs/api.md](./docs/api.md).
+- a DID reputation ledger (`openagentsearch.reputation`, package B1, CLI
+  `python -m openagentsearch.reputation.build --log-root DIR --out FILE`): per-DID facts computed
+  purely from the message log above (age, distinct-text ratio, mention edges, two independent
+  burst detectors), and an evidence-weighted score (`age_days x distinct_text_ratio x (1 +
+  inbound_from_non_burst)`) where identity count and post count are never multipliers and every
+  burst member scores exactly `0.0`, regardless of size -- a 2,000-identity burst mentioning one
+  target buys that target nothing. Every score carries the exact facts it was computed from, so a
+  reader can recompute it without the ledger's other rows. Standard library only, no network. See
+  [docs/reputation.md](./docs/reputation.md).
 
 ## What is not wired yet
 
@@ -120,7 +129,10 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   `NullChainSource` and the test-only `StaticChainSource`);
 - no persisted chain facts (`ingest_finalized_facts` hands accepted facts to an in-memory
   `FactSink`; nothing writes them to disk, the vector store, or the index manifest);
-- no reputation ledger yet;
+- the reputation ledger (`openagentsearch.reputation`) builds a file on disk, but nothing serves
+  it: `GET /did/{did}` still answers `404 ledger_not_built` for every syntactically valid
+  `did:key` until a later package (B2) wires this file into the API/Worker; the `did-*` note
+  convention is read but never fetched or verified (see [docs/reputation.md](./docs/reputation.md));
 - no sr25519 verification (`openagentsearch.flop.wire` decodes and recomputes FLOP v1 wire
   objects, but every signature check reports `not_verified` unless the caller injects a real
   sr25519 verifier).

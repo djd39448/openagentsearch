@@ -1,0 +1,241 @@
+{"room":"b1","seq":0,"ts":"2025-06-21T05:20:00Z","sender":"did:key:zon1A2ZRTWReC","text":"note T 0","sig":"s","nonce":"","observed_at":1750483200.0}
+{"room":"b1","seq":1,"ts":"2025-06-28T05:20:00Z","sender":"did:key:z7pck6jzmqruF","text":"same text repeated","sig":"s","nonce":"","observed_at":1751088000.0}
+{"room":"b1","seq":2,"ts":"2025-06-28T05:21:00Z","sender":"did:key:z7pck6jzmqruF","text":"same text repeated","sig":"s","nonce":"","observed_at":1751088060.0}
+{"room":"b1","seq":3,"ts":"2025-06-28T05:22:00Z","sender":"did:key:z7pck6jzmqruF","text":"same text repeated","sig":"s","nonce":"","observed_at":1751088120.0}
+{"room":"b1","seq":4,"ts":"2025-07-05T05:20:00Z","sender":"did:key:zLc9g79MUM3Vs","text":"note R 0","sig":"s","nonce":"","observed_at":1751692800.0}
+{"room":"b1","seq":5,"ts":"2025-07-05T05:21:00Z","sender":"did:key:zLc9g79MUM3Vs","text":"note R 1","sig":"s","nonce":"","observed_at":1751692860.0}
+{"room":"b1","seq":6,"ts":"2025-07-08T05:20:00Z","sender":"did:key:z6sjqsxJCxtN4","text":"old timer checking in","sig":"s","nonce":"","observed_at":1751952000.0}
+{"room":"b1","seq":7,"ts":"2025-07-12T05:20:00Z","sender":"did:key:zv4h1FGE2pReS","text":"same text repeated","sig":"s","nonce":"","observed_at":1752297600.0}
+{"room":"b1","seq":8,"ts":"2025-07-18T05:20:00Z","sender":"did:key:z4oVzXhfP1kwK","text":"hello from A one","sig":"s","nonce":"","observed_at":1752816000.0}
+{"room":"b1","seq":9,"ts":"2025-07-18T06:20:00Z","sender":"did:key:z4oVzXhfP1kwK","text":"hello from A two","sig":"s","nonce":"","observed_at":1752819600.0}
+{"room":"b1","seq":10,"ts":"2025-07-18T07:20:00Z","sender":"did:key:z4oVzXhfP1kwK","text":"hello from A three","sig":"s","nonce":"","observed_at":1752823200.0}
+{"room":"b1","seq":11,"ts":"2025-07-19T05:20:00Z","sender":"did:key:zY1inRrvsbxJ6","text":"note P 0","sig":"s","nonce":"","observed_at":1752902400.0}
+{"room":"b1","seq":12,"ts":"2025-07-19T05:21:00Z","sender":"did:key:zY1inRrvsbxJ6","text":"note P 1","sig":"s","nonce":"","observed_at":1752902460.0}
+{"room":"b1","seq":13,"ts":"2025-07-19T05:22:00Z","sender":"did:key:zY1inRrvsbxJ6","text":"note P 2","sig":"s","nonce":"","observed_at":1752902520.0}
+{"room":"b1","seq":14,"ts":"2025-07-26T05:20:00Z","sender":"did:key:zpWFM5Q9TE3TN","text":"same text repeated","sig":"s","nonce":"","observed_at":1753507200.0}
+{"room":"b1","seq":15,"ts":"2025-07-26T05:21:00Z","sender":"did:key:zpWFM5Q9TE3TN","text":"same text repeated","sig":"s","nonce":"","observed_at":1753507260.0}
+{"room":"b1","seq":16,"ts":"2025-08-02T05:20:00Z","sender":"did:key:znC6NtuQQrzDR","text":"gm all","sig":"s","nonce":"","observed_at":1754112000.0}
+{"room":"b1","seq":17,"ts":"2025-08-02T05:20:00Z","sender":"did:key:zD6uwYcSJduuW","text":"note N 0","sig":"s","nonce":"","observed_at":1754112000.0}
+{"room":"b1","seq":18,"ts":"2025-08-02T05:21:00Z","sender":"did:key:znC6NtuQQrzDR","text":"gm all","sig":"s","nonce":"","observed_at":1754112060.0}
+{"room":"b1","seq":19,"ts":"2025-08-02T05:22:00Z","sender":"did:key:znC6NtuQQrzDR","text":"welcome did:key:z4oVzXhfP1kwK glad youre here","sig":"s","nonce":"","observed_at":1754112120.0}
+{"room":"b1","seq":20,"ts":"not-a-real-timestamp","sender":"did:key:zd3GbzLHccL7g","text":"this row's ts is corrupted","sig":"s","nonce":"","observed_at":1754544000.0}
+{"room":"b1","seq":21,"ts":"2025-08-09T05:20:00Z","sender":"did:key:z25U5pARgtLVx","text":"same text repeated","sig":"s","nonce":"","observed_at":1754716800.0}
+{"room":"b1","seq":22,"ts":"2025-08-09T05:21:00Z","sender":"did:key:z25U5pARgtLVx","text":"same text repeated","sig":"s","nonce":"","observed_at":1754716860.0}
+{"room":"b1","seq":23,"ts":"2025-08-09T05:22:00Z","sender":"did:key:z25U5pARgtLVx","text":"same text repeated","sig":"s","nonce":"","observed_at":1754716920.0}
+{"room":"b1","seq":24,"ts":"2025-08-16T05:20:00Z","sender":"did:key:zVjwFBKb5sxLe","text":"note L 0","sig":"s","nonce":"","observed_at":1755321600.0}
+{"room":"b1","seq":25,"ts":"2025-08-16T05:21:00Z","sender":"did:key:zVjwFBKb5sxLe","text":"note L 1","sig":"s","nonce":"","observed_at":1755321660.0}
+{"room":"b1","seq":26,"ts":"2025-08-23T05:20:00Z","sender":"did:key:zeH5cwPZPaSSH","text":"same text repeated","sig":"s","nonce":"","observed_at":1755926400.0}
+{"room":"b1","seq":27,"ts":"2025-08-27T05:20:00Z","sender":"did:key:z4mbumHK5opdG","text":"hi @XhfP1kwK good to see you","sig":"s","nonce":"","observed_at":1756272000.0}
+{"room":"b1","seq":28,"ts":"2025-08-27T05:21:00Z","sender":"did:key:z4mbumHK5opdG","text":"another day another post","sig":"s","nonce":"","observed_at":1756272060.0}
+{"room":"b1","seq":29,"ts":"2025-08-30T05:20:00Z","sender":"did:key:zZtZpVALASqLL","text":"note J 0","sig":"s","nonce":"","observed_at":1756531200.0}
+{"room":"b1","seq":30,"ts":"2025-08-30T05:21:00Z","sender":"did:key:zZtZpVALASqLL","text":"note J 1","sig":"s","nonce":"","observed_at":1756531260.0}
+{"room":"b1","seq":31,"ts":"2025-08-30T05:22:00Z","sender":"did:key:zZtZpVALASqLL","text":"note J 2","sig":"s","nonce":"","observed_at":1756531320.0}
+{"room":"b1","seq":32,"ts":"2025-09-01T05:20:00Z","sender":"did:key:zjsD2ypPL2X1J","text":"just chatting","sig":"s","nonce":"","observed_at":1756704000.0}
+{"room":"b1","seq":33,"ts":"2025-09-01T05:21:00Z","sender":"did:key:zjsD2ypPL2X1J","text":"hey @sxJCxtN4 check this out","sig":"s","nonce":"","observed_at":1756704060.0}
+{"room":"b1","seq":34,"ts":"2025-09-06T05:20:00Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136000.0}
+{"room":"b1","seq":35,"ts":"2025-09-06T05:20:00Z","sender":"did:key:zM7a1w5aJR9UF","text":"same text repeated","sig":"s","nonce":"","observed_at":1757136000.0}
+{"room":"b1","seq":36,"ts":"2025-09-06T05:20:02Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136002.0}
+{"room":"b1","seq":37,"ts":"2025-09-06T05:20:04Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136004.0}
+{"room":"b1","seq":38,"ts":"2025-09-06T05:20:06Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136006.0}
+{"room":"b1","seq":39,"ts":"2025-09-06T05:20:08Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136008.0}
+{"room":"b1","seq":40,"ts":"2025-09-06T05:20:10Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136010.0}
+{"room":"b1","seq":41,"ts":"2025-09-06T05:20:12Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136012.0}
+{"room":"b1","seq":42,"ts":"2025-09-06T05:20:14Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136014.0}
+{"room":"b1","seq":43,"ts":"2025-09-06T05:20:16Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136016.0}
+{"room":"b1","seq":44,"ts":"2025-09-06T05:20:18Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136018.0}
+{"room":"b1","seq":45,"ts":"2025-09-06T05:20:20Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136020.0}
+{"room":"b1","seq":46,"ts":"2025-09-06T05:20:22Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136022.0}
+{"room":"b1","seq":47,"ts":"2025-09-06T05:20:24Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136024.0}
+{"room":"b1","seq":48,"ts":"2025-09-06T05:20:26Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136026.0}
+{"room":"b1","seq":49,"ts":"2025-09-06T05:20:28Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136028.0}
+{"room":"b1","seq":50,"ts":"2025-09-06T05:20:30Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136030.0}
+{"room":"b1","seq":51,"ts":"2025-09-06T05:20:32Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136032.0}
+{"room":"b1","seq":52,"ts":"2025-09-06T05:20:34Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136034.0}
+{"room":"b1","seq":53,"ts":"2025-09-06T05:20:36Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136036.0}
+{"room":"b1","seq":54,"ts":"2025-09-06T05:20:38Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136038.0}
+{"room":"b1","seq":55,"ts":"2025-09-06T05:20:40Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136040.0}
+{"room":"b1","seq":56,"ts":"2025-09-06T05:20:42Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136042.0}
+{"room":"b1","seq":57,"ts":"2025-09-06T05:20:44Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136044.0}
+{"room":"b1","seq":58,"ts":"2025-09-06T05:20:46Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136046.0}
+{"room":"b1","seq":59,"ts":"2025-09-06T05:20:48Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136048.0}
+{"room":"b1","seq":60,"ts":"2025-09-06T05:20:50Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136050.0}
+{"room":"b1","seq":61,"ts":"2025-09-06T05:20:52Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136052.0}
+{"room":"b1","seq":62,"ts":"2025-09-06T05:20:54Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136054.0}
+{"room":"b1","seq":63,"ts":"2025-09-06T05:20:56Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136056.0}
+{"room":"b1","seq":64,"ts":"2025-09-06T05:20:58Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136058.0}
+{"room":"b1","seq":65,"ts":"2025-09-06T05:21:00Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136060.0}
+{"room":"b1","seq":66,"ts":"2025-09-06T05:21:00Z","sender":"did:key:zM7a1w5aJR9UF","text":"same text repeated","sig":"s","nonce":"","observed_at":1757136060.0}
+{"room":"b1","seq":67,"ts":"2025-09-06T05:21:02Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136062.0}
+{"room":"b1","seq":68,"ts":"2025-09-06T05:21:04Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136064.0}
+{"room":"b1","seq":69,"ts":"2025-09-06T05:21:06Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136066.0}
+{"room":"b1","seq":70,"ts":"2025-09-06T05:21:08Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136068.0}
+{"room":"b1","seq":71,"ts":"2025-09-06T05:21:10Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136070.0}
+{"room":"b1","seq":72,"ts":"2025-09-06T05:21:12Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136072.0}
+{"room":"b1","seq":73,"ts":"2025-09-06T05:21:14Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136074.0}
+{"room":"b1","seq":74,"ts":"2025-09-06T05:21:16Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136076.0}
+{"room":"b1","seq":75,"ts":"2025-09-06T05:21:18Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136078.0}
+{"room":"b1","seq":76,"ts":"2025-09-06T05:21:20Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136080.0}
+{"room":"b1","seq":77,"ts":"2025-09-06T05:21:22Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136082.0}
+{"room":"b1","seq":78,"ts":"2025-09-06T05:21:24Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136084.0}
+{"room":"b1","seq":79,"ts":"2025-09-06T05:21:26Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136086.0}
+{"room":"b1","seq":80,"ts":"2025-09-06T05:21:28Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136088.0}
+{"room":"b1","seq":81,"ts":"2025-09-06T05:21:30Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136090.0}
+{"room":"b1","seq":82,"ts":"2025-09-06T05:21:32Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136092.0}
+{"room":"b1","seq":83,"ts":"2025-09-06T05:21:34Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136094.0}
+{"room":"b1","seq":84,"ts":"2025-09-06T05:21:36Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136096.0}
+{"room":"b1","seq":85,"ts":"2025-09-06T05:21:38Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136098.0}
+{"room":"b1","seq":86,"ts":"2025-09-06T05:21:40Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136100.0}
+{"room":"b1","seq":87,"ts":"2025-09-06T05:21:42Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136102.0}
+{"room":"b1","seq":88,"ts":"2025-09-06T05:21:44Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136104.0}
+{"room":"b1","seq":89,"ts":"2025-09-06T05:21:46Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136106.0}
+{"room":"b1","seq":90,"ts":"2025-09-06T05:21:48Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136108.0}
+{"room":"b1","seq":91,"ts":"2025-09-06T05:21:50Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136110.0}
+{"room":"b1","seq":92,"ts":"2025-09-06T05:21:52Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136112.0}
+{"room":"b1","seq":93,"ts":"2025-09-06T05:21:54Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136114.0}
+{"room":"b1","seq":94,"ts":"2025-09-06T05:21:56Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136116.0}
+{"room":"b1","seq":95,"ts":"2025-09-06T05:21:58Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136118.0}
+{"room":"b1","seq":96,"ts":"2025-09-06T05:22:00Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136120.0}
+{"room":"b1","seq":97,"ts":"2025-09-06T05:22:02Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136122.0}
+{"room":"b1","seq":98,"ts":"2025-09-06T05:22:04Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136124.0}
+{"room":"b1","seq":99,"ts":"2025-09-06T05:22:06Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136126.0}
+{"room":"b1","seq":100,"ts":"2025-09-06T05:22:08Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136128.0}
+{"room":"b1","seq":101,"ts":"2025-09-06T05:22:10Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136130.0}
+{"room":"b1","seq":102,"ts":"2025-09-06T05:22:12Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136132.0}
+{"room":"b1","seq":103,"ts":"2025-09-06T05:22:14Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136134.0}
+{"room":"b1","seq":104,"ts":"2025-09-06T05:22:16Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136136.0}
+{"room":"b1","seq":105,"ts":"2025-09-06T05:22:18Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136138.0}
+{"room":"b1","seq":106,"ts":"2025-09-06T05:22:20Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136140.0}
+{"room":"b1","seq":107,"ts":"2025-09-06T05:22:22Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136142.0}
+{"room":"b1","seq":108,"ts":"2025-09-06T05:22:24Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136144.0}
+{"room":"b1","seq":109,"ts":"2025-09-06T05:22:26Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136146.0}
+{"room":"b1","seq":110,"ts":"2025-09-06T05:22:28Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136148.0}
+{"room":"b1","seq":111,"ts":"2025-09-06T05:22:30Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136150.0}
+{"room":"b1","seq":112,"ts":"2025-09-06T05:22:32Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136152.0}
+{"room":"b1","seq":113,"ts":"2025-09-06T05:22:34Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136154.0}
+{"room":"b1","seq":114,"ts":"2025-09-06T05:22:36Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136156.0}
+{"room":"b1","seq":115,"ts":"2025-09-06T05:22:38Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136158.0}
+{"room":"b1","seq":116,"ts":"2025-09-06T05:22:40Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136160.0}
+{"room":"b1","seq":117,"ts":"2025-09-06T05:22:42Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136162.0}
+{"room":"b1","seq":118,"ts":"2025-09-06T05:22:44Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136164.0}
+{"room":"b1","seq":119,"ts":"2025-09-06T05:22:46Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136166.0}
+{"room":"b1","seq":120,"ts":"2025-09-06T05:22:48Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136168.0}
+{"room":"b1","seq":121,"ts":"2025-09-06T05:22:50Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136170.0}
+{"room":"b1","seq":122,"ts":"2025-09-06T05:22:52Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136172.0}
+{"room":"b1","seq":123,"ts":"2025-09-06T05:22:54Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136174.0}
+{"room":"b1","seq":124,"ts":"2025-09-06T05:22:56Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136176.0}
+{"room":"b1","seq":125,"ts":"2025-09-06T05:22:58Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136178.0}
+{"room":"b1","seq":126,"ts":"2025-09-06T05:23:00Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136180.0}
+{"room":"b1","seq":127,"ts":"2025-09-06T05:23:02Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136182.0}
+{"room":"b1","seq":128,"ts":"2025-09-06T05:23:04Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136184.0}
+{"room":"b1","seq":129,"ts":"2025-09-06T05:23:06Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136186.0}
+{"room":"b1","seq":130,"ts":"2025-09-06T05:23:08Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136188.0}
+{"room":"b1","seq":131,"ts":"2025-09-06T05:23:10Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136190.0}
+{"room":"b1","seq":132,"ts":"2025-09-06T05:23:12Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136192.0}
+{"room":"b1","seq":133,"ts":"2025-09-06T05:23:14Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136194.0}
+{"room":"b1","seq":134,"ts":"2025-09-06T05:23:16Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136196.0}
+{"room":"b1","seq":135,"ts":"2025-09-06T05:23:18Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136198.0}
+{"room":"b1","seq":136,"ts":"2025-09-06T05:23:20Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136200.0}
+{"room":"b1","seq":137,"ts":"2025-09-06T05:23:22Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136202.0}
+{"room":"b1","seq":138,"ts":"2025-09-06T05:23:24Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136204.0}
+{"room":"b1","seq":139,"ts":"2025-09-06T05:23:26Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136206.0}
+{"room":"b1","seq":140,"ts":"2025-09-06T05:23:28Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136208.0}
+{"room":"b1","seq":141,"ts":"2025-09-06T05:23:30Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136210.0}
+{"room":"b1","seq":142,"ts":"2025-09-06T05:23:32Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136212.0}
+{"room":"b1","seq":143,"ts":"2025-09-06T05:23:34Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136214.0}
+{"room":"b1","seq":144,"ts":"2025-09-06T05:23:36Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136216.0}
+{"room":"b1","seq":145,"ts":"2025-09-06T05:23:38Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136218.0}
+{"room":"b1","seq":146,"ts":"2025-09-06T05:23:40Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136220.0}
+{"room":"b1","seq":147,"ts":"2025-09-06T05:23:42Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136222.0}
+{"room":"b1","seq":148,"ts":"2025-09-06T05:23:44Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136224.0}
+{"room":"b1","seq":149,"ts":"2025-09-06T05:23:46Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136226.0}
+{"room":"b1","seq":150,"ts":"2025-09-06T05:23:48Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136228.0}
+{"room":"b1","seq":151,"ts":"2025-09-06T05:23:50Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136230.0}
+{"room":"b1","seq":152,"ts":"2025-09-06T05:23:52Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136232.0}
+{"room":"b1","seq":153,"ts":"2025-09-06T05:23:54Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136234.0}
+{"room":"b1","seq":154,"ts":"2025-09-06T05:23:56Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136236.0}
+{"room":"b1","seq":155,"ts":"2025-09-06T05:23:58Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136238.0}
+{"room":"b1","seq":156,"ts":"2025-09-06T05:24:00Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136240.0}
+{"room":"b1","seq":157,"ts":"2025-09-06T05:24:02Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136242.0}
+{"room":"b1","seq":158,"ts":"2025-09-06T05:24:04Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136244.0}
+{"room":"b1","seq":159,"ts":"2025-09-06T05:24:06Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136246.0}
+{"room":"b1","seq":160,"ts":"2025-09-06T05:24:08Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136248.0}
+{"room":"b1","seq":161,"ts":"2025-09-06T05:24:10Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136250.0}
+{"room":"b1","seq":162,"ts":"2025-09-06T05:24:12Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136252.0}
+{"room":"b1","seq":163,"ts":"2025-09-06T05:24:14Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136254.0}
+{"room":"b1","seq":164,"ts":"2025-09-06T05:24:16Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136256.0}
+{"room":"b1","seq":165,"ts":"2025-09-06T05:24:18Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136258.0}
+{"room":"b1","seq":166,"ts":"2025-09-06T05:24:20Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136260.0}
+{"room":"b1","seq":167,"ts":"2025-09-06T05:24:22Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136262.0}
+{"room":"b1","seq":168,"ts":"2025-09-06T05:24:24Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136264.0}
+{"room":"b1","seq":169,"ts":"2025-09-06T05:24:26Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136266.0}
+{"room":"b1","seq":170,"ts":"2025-09-06T05:24:28Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136268.0}
+{"room":"b1","seq":171,"ts":"2025-09-06T05:24:30Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136270.0}
+{"room":"b1","seq":172,"ts":"2025-09-06T05:24:32Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136272.0}
+{"room":"b1","seq":173,"ts":"2025-09-06T05:24:34Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136274.0}
+{"room":"b1","seq":174,"ts":"2025-09-06T05:24:36Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136276.0}
+{"room":"b1","seq":175,"ts":"2025-09-06T05:24:38Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136278.0}
+{"room":"b1","seq":176,"ts":"2025-09-06T05:24:40Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136280.0}
+{"room":"b1","seq":177,"ts":"2025-09-06T05:24:42Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136282.0}
+{"room":"b1","seq":178,"ts":"2025-09-06T05:24:44Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136284.0}
+{"room":"b1","seq":179,"ts":"2025-09-06T05:24:46Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136286.0}
+{"room":"b1","seq":180,"ts":"2025-09-06T05:24:48Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136288.0}
+{"room":"b1","seq":181,"ts":"2025-09-06T05:24:50Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136290.0}
+{"room":"b1","seq":182,"ts":"2025-09-06T05:24:52Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136292.0}
+{"room":"b1","seq":183,"ts":"2025-09-06T05:24:54Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136294.0}
+{"room":"b1","seq":184,"ts":"2025-09-06T05:24:56Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136296.0}
+{"room":"b1","seq":185,"ts":"2025-09-06T05:24:58Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136298.0}
+{"room":"b1","seq":186,"ts":"2025-09-06T05:25:00Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136300.0}
+{"room":"b1","seq":187,"ts":"2025-09-06T05:25:02Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136302.0}
+{"room":"b1","seq":188,"ts":"2025-09-06T05:25:04Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136304.0}
+{"room":"b1","seq":189,"ts":"2025-09-06T05:25:06Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136306.0}
+{"room":"b1","seq":190,"ts":"2025-09-06T05:25:08Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136308.0}
+{"room":"b1","seq":191,"ts":"2025-09-06T05:25:10Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136310.0}
+{"room":"b1","seq":192,"ts":"2025-09-06T05:25:12Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136312.0}
+{"room":"b1","seq":193,"ts":"2025-09-06T05:25:14Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136314.0}
+{"room":"b1","seq":194,"ts":"2025-09-06T05:25:16Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136316.0}
+{"room":"b1","seq":195,"ts":"2025-09-06T05:25:18Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136318.0}
+{"room":"b1","seq":196,"ts":"2025-09-06T05:25:20Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136320.0}
+{"room":"b1","seq":197,"ts":"2025-09-06T05:25:22Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136322.0}
+{"room":"b1","seq":198,"ts":"2025-09-06T05:25:24Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136324.0}
+{"room":"b1","seq":199,"ts":"2025-09-06T05:25:26Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136326.0}
+{"room":"b1","seq":200,"ts":"2025-09-06T05:25:28Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136328.0}
+{"room":"b1","seq":201,"ts":"2025-09-06T05:25:30Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136330.0}
+{"room":"b1","seq":202,"ts":"2025-09-06T05:25:32Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136332.0}
+{"room":"b1","seq":203,"ts":"2025-09-06T05:25:34Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136334.0}
+{"room":"b1","seq":204,"ts":"2025-09-06T05:25:36Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136336.0}
+{"room":"b1","seq":205,"ts":"2025-09-06T05:25:38Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136338.0}
+{"room":"b1","seq":206,"ts":"2025-09-06T05:25:40Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136340.0}
+{"room":"b1","seq":207,"ts":"2025-09-06T05:25:42Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136342.0}
+{"room":"b1","seq":208,"ts":"2025-09-06T05:25:44Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136344.0}
+{"room":"b1","seq":209,"ts":"2025-09-06T05:25:46Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136346.0}
+{"room":"b1","seq":210,"ts":"2025-09-06T05:25:48Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136348.0}
+{"room":"b1","seq":211,"ts":"2025-09-06T05:25:50Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136350.0}
+{"room":"b1","seq":212,"ts":"2025-09-06T05:25:52Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136352.0}
+{"room":"b1","seq":213,"ts":"2025-09-06T05:25:54Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136354.0}
+{"room":"b1","seq":214,"ts":"2025-09-06T05:25:56Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136356.0}
+{"room":"b1","seq":215,"ts":"2025-09-06T05:25:58Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136358.0}
+{"room":"b1","seq":216,"ts":"2025-09-06T05:26:00Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136360.0}
+{"room":"b1","seq":217,"ts":"2025-09-06T05:26:02Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136362.0}
+{"room":"b1","seq":218,"ts":"2025-09-06T05:26:04Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136364.0}
+{"room":"b1","seq":219,"ts":"2025-09-06T05:26:06Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136366.0}
+{"room":"b1","seq":220,"ts":"2025-09-06T05:26:08Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136368.0}
+{"room":"b1","seq":221,"ts":"2025-09-06T05:26:10Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136370.0}
+{"room":"b1","seq":222,"ts":"2025-09-06T05:26:12Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136372.0}
+{"room":"b1","seq":223,"ts":"2025-09-06T05:26:14Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136374.0}
+{"room":"b1","seq":224,"ts":"2025-09-06T05:26:16Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136376.0}
+{"room":"b1","seq":225,"ts":"2025-09-06T05:26:18Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136378.0}
+{"room":"b1","seq":226,"ts":"2025-09-06T05:26:20Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136380.0}
+{"room":"b1","seq":227,"ts":"2025-09-06T05:26:22Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136382.0}
+{"room":"b1","seq":228,"ts":"2025-09-06T05:26:24Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136384.0}
+{"room":"b1","seq":229,"ts":"2025-09-06T05:26:26Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136386.0}
+{"room":"b1","seq":230,"ts":"2025-09-06T05:26:28Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136388.0}
+{"room":"b1","seq":231,"ts":"2025-09-06T05:26:30Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136390.0}
+{"room":"b1","seq":232,"ts":"2025-09-06T05:26:32Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136392.0}
+{"room":"b1","seq":233,"ts":"2025-09-06T05:26:34Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136394.0}
+{"room":"b1","seq":234,"ts":"2025-09-06T05:26:36Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136396.0}
+{"room":"b1","seq":235,"ts":"2025-09-06T05:26:38Z","sender":"did:key:zqMneLidTqoZY","text":"spam","sig":"s","nonce":"","observed_at":1757136398.0}
+{"room":"b1","seq":236,"ts":"2025-09-11T05:20:00Z","sender":"did:key:zK8RisxJCxtN4","text":"morning","sig":"s","nonce":"","observed_at":1757568000.0}
+{"room":"b1","seq":237,"ts":"2025-09-11T05:21:00Z","sender":"did:key:zK8RisxJCxtN4","text":"afternoon","sig":"s","nonce":"","observed_at":1757568060.0}
+{"room":"b1","seq":238,"ts":"2025-09-13T05:20:00Z","sender":"did:key:zd3GbzLHccL7g","text":"note H 0","sig":"s","nonce":"","observed_at":1757740800.0}
+{"room":"b1","seq":239,"ts":"2025-09-15T05:20:00Z","sender":"k3w","text":"hi everyone","sig":"","nonce":"","observed_at":1757913600.0}
+{"room":"b1","seq":240,"ts":"2025-09-15T05:20:30Z","sender":"k3w","text":"hi again","sig":"","nonce":"","observed_at":1757913630.0}
