@@ -119,3 +119,57 @@ def test_cli_accepts_room_notes_and_burst_flags(tmp_path: Path):
     assert proc.returncode == 0, (proc.stdout, proc.stderr)
     payload = json.loads(proc.stdout.strip())
     assert payload["notes_lines"] == 1
+
+
+# ---------------------------------------------------------------------------------------------
+# Package B2: --compact-out
+# ---------------------------------------------------------------------------------------------
+
+
+def test_cli_writes_compact_ledger_when_compact_out_given(tmp_path: Path):
+    root = install_fixture(tmp_path / "log")
+    out_path = tmp_path / "out" / "ledger.jsonl"
+    compact_out_path = tmp_path / "out" / "ledger-compact.json"
+    proc = subprocess.run(
+        [
+            sys.executable, "-m", "openagentsearch.reputation.build",
+            "--log-root", str(root), "--out", str(out_path), "--now", "1758000000.0",
+            "--compact-out", str(compact_out_path),
+        ],
+        cwd=str(REPO), env=_subprocess_env(), capture_output=True, text=True,
+        timeout=SUBPROCESS_TIMEOUT,
+    )
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    payload = json.loads(proc.stdout.strip())
+    assert set(payload.keys()) == {
+        "path", "bytes", "log_rows", "posts", "skipped_malformed", "skipped_unsigned",
+        "dids", "bursts", "notes_lines", "notes_used", "seconds", "compact_bytes",
+    }
+    assert compact_out_path.is_file()
+    assert compact_out_path.stat().st_size == payload["compact_bytes"] > 0
+
+    from openagentsearch.reputation.compact import load_compact_ledger
+
+    compact = load_compact_ledger(compact_out_path)
+    assert compact.dids == payload["dids"] == 20
+    assert compact.bursts == payload["bursts"]
+
+
+def test_cli_without_compact_out_keeps_the_baseline_report_shape(tmp_path: Path):
+    # No "compact_bytes" key at all when --compact-out is omitted -- matches
+    # test_cli_writes_the_ledger_and_prints_a_report_line's exact key-set assertion above.
+    root = install_fixture(tmp_path / "log")
+    out_path = tmp_path / "out" / "ledger.jsonl"
+    compact_out_path = tmp_path / "out" / "ledger-compact.json"
+    proc = subprocess.run(
+        [
+            sys.executable, "-m", "openagentsearch.reputation.build",
+            "--log-root", str(root), "--out", str(out_path), "--now", "1758000000.0",
+        ],
+        cwd=str(REPO), env=_subprocess_env(), capture_output=True, text=True,
+        timeout=SUBPROCESS_TIMEOUT,
+    )
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    payload = json.loads(proc.stdout.strip())
+    assert "compact_bytes" not in payload
+    assert not compact_out_path.exists()

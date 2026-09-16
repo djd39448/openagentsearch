@@ -1,8 +1,9 @@
-// Package C2b, spec Tests item 3: the JSON router built with `makeWorker(fixtureIndex)` from
-// `worker/src/routes.js` -- deliberately NOT `worker/src/index.js`, which imports `agents` and
-// the MCP SDK and therefore only runs from WSL (see `worker/test-mcp/mcp.test.mjs`). Every route,
-// every documented status, the full header set (successes AND errors), the rate limiter's four
-// outcomes, and the bound checks.
+// Package C2b, spec Tests item 3 (extended by package B2's `/did/{did}` cases): the JSON router
+// built with `makeWorker(fixtureIndex[, ledgerFixture])` from `worker/src/routes.js` --
+// deliberately NOT `worker/src/index.js`, which imports `agents` and the MCP SDK and therefore
+// only runs from WSL (see `worker/test-mcp/mcp.test.mjs`). Every route, every documented status,
+// the full header set (successes AND errors), the rate limiter's four outcomes, and the bound
+// checks.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -20,6 +21,19 @@ const INDEX = JSON.parse(
     "utf-8",
   ),
 );
+// Package B2: the compact reputation-ledger fixture, generated from the same 20-DID log package
+// B1's Python tests replay (`scripts/make_reputation_fixture.py`, extended). One DID (200 posts
+// inside a few minutes) is its one burst member; every other DID is non-burst.
+const LEDGER = JSON.parse(
+  readFileSync(
+    path.join(REPO_ROOT, "tests", "fixtures", "reputation", "compact-fixture.json"),
+    "utf-8",
+  ),
+);
+const NON_BURST_DID = Object.keys(LEDGER.non_burst).sort()[0];
+const BURST_DID = Object.keys(LEDGER.burst)[0];
+// Well-formed, but not one of the 20 synthetic fixture DIDs above.
+const UNKNOWN_DID = "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf";
 
 const BASE = "https://openagentsearch.example.workers.dev";
 
@@ -67,6 +81,18 @@ test("GET / returns the service card with the full header set", async () => {
   assert.ok(Array.isArray(body.routes));
   assert.ok(body.routes.includes("POST /mcp"));
   assert.deepEqual(body.tools, ["search", "did_lookup", "index_info"]);
+  assert.equal(body.ledger, null); // no ledger passed to makeWorker (package B2)
+});
+
+test("GET / reports the ledger counts when a ledger is loaded", async () => {
+  const worker = makeWorker(INDEX, LEDGER);
+  const res = await worker.fetch(req("/"), ALWAYS_ALLOW);
+  const body = await res.json();
+  assert.deepEqual(body.ledger, {
+    dids: LEDGER.dids,
+    bursts: LEDGER.bursts,
+    generated_at: LEDGER.generated_at,
+  });
 });
 
 test("/ bypasses the rate limiter even when the binding would refuse", async () => {
@@ -114,6 +140,18 @@ test("GET /healthz reports index counts and bypasses the rate limiter", async ()
   assert.equal(body.lexical.terms, INDEX.counts.terms);
   assert.equal(body.lexical.postings, INDEX.counts.postings);
   assert.equal(body.generated_at, INDEX.generated_at);
+  assert.equal(body.ledger, null); // no ledger passed to makeWorker (package B2)
+});
+
+test("GET /healthz reports the ledger counts when a ledger is loaded", async () => {
+  const worker = makeWorker(INDEX, LEDGER);
+  const res = await worker.fetch(req("/healthz"), ALWAYS_ALLOW);
+  const body = await res.json();
+  assert.deepEqual(body.ledger, {
+    dids: LEDGER.dids,
+    bursts: LEDGER.bursts,
+    generated_at: LEDGER.generated_at,
+  });
 });
 
 // --- GET /search -----------------------------------------------------------------------------
@@ -249,16 +287,23 @@ test("POST /search is 405", async () => {
 
 // --- GET /did/{did} ----------------------------------------------------------------------
 
-test("a well-formed did:key answers 404 ledger_not_built", async () => {
-  const worker = makeWorker(INDEX);
-  const did = "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf";
-  const res = await worker.fetch(req(`/did/${did}`), ALWAYS_ALLOW);
+test("makeWorker(index, null): a well-formed did:key answers 404 ledger_not_built", async () => {
+  const worker = makeWorker(INDEX, null);
+  const res = await worker.fetch(req(`/did/${UNKNOWN_DID}`), ALWAYS_ALLOW);
   assert.equal(res.status, 404);
   assertCommonHeaders(res);
   assert.deepEqual(await res.json(), { error: "ledger_not_built" });
+  assert.equal(res.headers.get("x-ledger-generated-at"), null); // nothing to report -- no ledger
 });
 
-test("a malformed did is 400 invalid_did", async () => {
+test("makeWorker(index): omitting ledger defaults to the same ledger_not_built answer", async () => {
+  const worker = makeWorker(INDEX);
+  const res = await worker.fetch(req(`/did/${UNKNOWN_DID}`), ALWAYS_ALLOW);
+  assert.equal(res.status, 404);
+  assert.deepEqual(await res.json(), { error: "ledger_not_built" });
+});
+
+test("a malformed did is 400 invalid_did, with no ledger loaded", async () => {
   const worker = makeWorker(INDEX);
   const res = await worker.fetch(req("/did/not-a-valid-did"), ALWAYS_ALLOW);
   assert.equal(res.status, 400);
@@ -269,6 +314,108 @@ test("did without the z multibase prefix is 400 invalid_did", async () => {
   const worker = makeWorker(INDEX);
   const res = await worker.fetch(req("/did/did:key:6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf"), ALWAYS_ALLOW);
   assert.equal(res.status, 400);
+});
+
+// --- GET /did/{did}, with a compact ledger loaded (package B2) -----------------------------
+
+test("a known non-burst did answers 200 with the full facts/score body", async () => {
+  const worker = makeWorker(INDEX, LEDGER);
+  const res = await worker.fetch(req(`/did/${NON_BURST_DID}`), ALWAYS_ALLOW);
+  assert.equal(res.status, 200);
+  assertCommonHeaders(res);
+  assert.equal(res.headers.get("x-ledger-generated-at"), LEDGER.generated_at);
+  const body = await res.json();
+  const expectedRow = LEDGER.non_burst[NON_BURST_DID];
+  assert.deepEqual(body, {
+    did: NON_BURST_DID,
+    burst: false,
+    score: expectedRow.score.score,
+    facts_used: expectedRow.score.facts_used,
+    facts: expectedRow.facts,
+    provenance: {
+      ledger_generated_at: LEDGER.generated_at,
+      log_rows: LEDGER.log_rows,
+      posts: LEDGER.posts,
+      dids: LEDGER.dids,
+      bursts: LEDGER.bursts,
+      schema: LEDGER.schema,
+    },
+  });
+});
+
+test("a known burst did answers 200 with the compact burst body", async () => {
+  const worker = makeWorker(INDEX, LEDGER);
+  const res = await worker.fetch(req(`/did/${BURST_DID}`), ALWAYS_ALLOW);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("x-ledger-generated-at"), LEDGER.generated_at);
+  const body = await res.json();
+  const [burstId, firstSeenTs, postCount, maxPostsPerMinute] = LEDGER.burst[BURST_DID];
+  // Pinned as a literal, not derived from `String(firstSeenTs)` -- that would make this
+  // assertion tautologically self-consistent with the route's own formatting and unable to
+  // catch a regression (see `openagentsearch.reputation.compact`'s cross-language parity test,
+  // `test_lookup_burst_did_facts_used_matches_worker_js_number_formatting`, which pins the SAME
+  // committed fixture's SAME DID on the Python side to the SAME literal -- the "one shape
+  // everywhere" contract, `handoff/B2-SPEC.md` item 2). This fixture's `did:key:zqMneLidTqoZY`
+  // has `first_seen_ts` 1757136000.0, a whole-second timestamp -- JS's `String()` never keeps a
+  // trailing ".0" for an integral Number, where Python's native `str(float)` always does.
+  assert.equal(BURST_DID, "did:key:zqMneLidTqoZY");
+  assert.equal(String(firstSeenTs), "1757136000");
+  assert.deepEqual(body, {
+    did: BURST_DID,
+    burst: true,
+    burst_id: burstId,
+    score: 0,
+    facts_used: [
+      ["burst", "true"],
+      ["first_seen_ts", "1757136000"],
+      ["post_count", String(postCount)],
+      ["max_posts_per_minute", String(maxPostsPerMinute)],
+    ],
+    facts: null,
+    provenance: {
+      ledger_generated_at: LEDGER.generated_at,
+      log_rows: LEDGER.log_rows,
+      posts: LEDGER.posts,
+      dids: LEDGER.dids,
+      bursts: LEDGER.bursts,
+      schema: LEDGER.schema,
+    },
+  });
+});
+
+test("an unknown well-formed did answers 404 unknown_did, with a ledger loaded", async () => {
+  const worker = makeWorker(INDEX, LEDGER);
+  const res = await worker.fetch(req(`/did/${UNKNOWN_DID}`), ALWAYS_ALLOW);
+  assert.equal(res.status, 404);
+  assert.deepEqual(await res.json(), { error: "unknown_did" });
+  assert.equal(res.headers.get("x-ledger-generated-at"), LEDGER.generated_at);
+});
+
+test("a malformed did is 400 invalid_did even with a ledger loaded, header still present", async () => {
+  const worker = makeWorker(INDEX, LEDGER);
+  const res = await worker.fetch(req("/did/not-a-valid-did"), ALWAYS_ALLOW);
+  assert.equal(res.status, 400);
+  assert.deepEqual(await res.json(), { error: "invalid_did" });
+  assert.equal(res.headers.get("x-ledger-generated-at"), LEDGER.generated_at);
+});
+
+test("GET /did/{did} accepts a percent-encoded DID and answers exactly like the literal one", async () => {
+  const worker = makeWorker(INDEX, LEDGER);
+  const literal = await worker.fetch(req(`/did/${NON_BURST_DID}`), ALWAYS_ALLOW);
+  const encoded = await worker.fetch(req(`/did/${encodeURIComponent(NON_BURST_DID)}`), ALWAYS_ALLOW);
+  assert.equal(encoded.status, 200);
+  assert.deepEqual(await encoded.json(), await literal.json());
+  const malformed = await worker.fetch(req("/did/did%3Akey%3Az%E0%A4%A"), ALWAYS_ALLOW);
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(await malformed.json(), { error: "invalid_did" });
+});
+
+test("HEAD /did/{did} carries the same status and headers with no body", async () => {
+  const worker = makeWorker(INDEX, LEDGER);
+  const res = await worker.fetch(req(`/did/${NON_BURST_DID}`, { method: "HEAD" }), ALWAYS_ALLOW);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("x-ledger-generated-at"), LEDGER.generated_at);
+  assert.equal(await res.text(), "");
 });
 
 // --- GET /route (reserved) ----------------------------------------------------------------

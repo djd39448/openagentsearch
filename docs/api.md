@@ -24,7 +24,8 @@ error responses. `HEAD` is accepted everywhere `GET` is, with the same status an
 body. Every route except `/` and `/healthz` (this includes `/mcp`) is rate-limited: **60 requests
 per 60 seconds per client IP per Cloudflare location** (the Workers Rate Limiting binding is
 "permissive, eventually consistent" — see [`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §1).
-Any path over 256 characters is refused before routing.
+Any path over 256 characters is refused before routing. Every `/did/{did}` response also carries
+`X-Ledger-Generated-At` whenever a reputation ledger is loaded (see that route below).
 
 ### `GET /`
 
@@ -44,9 +45,13 @@ curl https://openagentsearch.trustcoresystems.workers.dev/
   "routes": ["GET /", "GET /healthz", "GET /search", "GET /did/{did}", "GET /route", "GET /index/manifest.json", "GET /index/flop-surface.jsonl", "GET /index/lexical-v1.json", "POST /mcp"],
   "tools": ["search", "did_lookup", "index_info"],
   "docs": "https://github.com/djd39448/openagentsearch/blob/main/docs/api.md",
-  "static_index": "https://djd39448.github.io/openagentsearch/"
+  "static_index": "https://djd39448.github.io/openagentsearch/",
+  "ledger": {"dids": 53856, "bursts": 12, "generated_at": "2026-09-16T05:20:00Z"}
 }
 ```
+
+`ledger` is `null` when the Worker was built without a compact reputation ledger — see
+`GET /did/{did}` below.
 
 ### `GET /healthz`
 
@@ -61,9 +66,14 @@ curl https://openagentsearch.trustcoresystems.workers.dev/healthz
   "kinds": {"github_doc": 1200, "github_issue": 400, "html": 18, "room": 2000, "site": 376},
   "generated_at": "2026-09-15T18:00:00Z",
   "db_sha256": "<sha256 of the source database>",
-  "lexical": {"docs": 5476, "terms": 21794, "postings": 220372}
+  "lexical": {"docs": 5476, "terms": 21794, "postings": 220372},
+  "ledger": {"dids": 53856, "bursts": 12, "generated_at": "2026-09-16T05:20:00Z"}
 }
 ```
+
+`ledger` (package B2) is `{"dids", "bursts", "generated_at"}` from the loaded compact reputation
+ledger, or `null` when none was loaded — `scripts/verify_public.py --ledger PATH` checks
+`ledger.dids`/`ledger.generated_at` here against a local copy of that file.
 
 **Not the same as the full manifest.** This Worker bundles only `lexical-v1.json`, never
 `manifest.json` — so `index.failed`, `index.superseded` and `index.refused` are always `0` here
@@ -110,8 +120,78 @@ document that never shares a token with it.
 
 ### `GET /did/{did}`
 
-Reserved for the FLOP reputation ledger (package B2). **Not built yet**: every syntactically valid
-`did:key` currently answers `404 ledger_not_built`.
+The FLOP reputation ledger (`openagentsearch.reputation`, package B1 facts/score, package B2
+publishing) — one answer shape everywhere this Worker, the A2 server (`openagentsearch.api.did`)
+and both MCP tools' `did_lookup` all reach the same loaded compact ledger. A Worker or server
+built WITHOUT one (no `did-ledger-compact.json` bundled, or the A2 server started without
+`--ledger`) answers `404 ledger_not_built` for every syntactically valid `did:key`, exactly as
+before B2.
+
+**Malformed `did` — `400 {"error": "invalid_did"}`.** A `did` not matching
+`^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$` (the `did:key:` method, multibase `z` prefix, 1-120
+base58 characters) always answers this first, whether or not a ledger is loaded:
+
+```
+curl https://openagentsearch.trustcoresystems.workers.dev/did/not-a-valid-did
+```
+
+```json
+{"error": "invalid_did"}
+```
+
+**Known, non-burst DID — `200`:**
+
+```
+curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf
+```
+
+```json
+{
+  "did": "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf",
+  "burst": false,
+  "score": 41.850018,
+  "facts_used": [["age_days", "62.5"], ["distinct_text_ratio", "1.0"], ["inbound_from_non_burst", "0"], ["burst", "false"], ["post_count", "12"]],
+  "facts": {"did": "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf", "first_seen_seq": 40128, "...": "...every DidFacts field, see docs/reputation.md..."},
+  "provenance": {"ledger_generated_at": "2026-09-16T05:20:00Z", "log_rows": 269000, "posts": 268400, "dids": 53856, "bursts": 12, "schema": "openagentsearch.did-ledger-compact/1"}
+}
+```
+
+**Known, burst-member DID — `200`.** The compact ledger keeps only four facts for a burst member
+(it never scores above `0.0` regardless of anything else — see
+[docs/reputation.md](./reputation.md)), so `facts` is `null` and `facts_used` is reconstructed
+from those four fields, not the ledger's original five-pair formula trace:
+
+```
+curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:zBurstMemberExample00000
+```
+
+```json
+{
+  "did": "did:key:zBurstMemberExample00000",
+  "burst": true,
+  "burst_id": 3,
+  "score": 0.0,
+  "facts_used": [["burst", "true"], ["first_seen_ts", "1757900000"], ["post_count", "5"], ["max_posts_per_minute", "5"]],
+  "facts": null,
+  "provenance": {"ledger_generated_at": "2026-09-16T05:20:00Z", "log_rows": 269000, "posts": 268400, "dids": 53856, "bursts": 12, "schema": "openagentsearch.did-ledger-compact/1"}
+}
+```
+
+**Well-formed DID absent from the ledger — `404 {"error": "unknown_did"}`** (an identity that
+never posted a signed message in a logged room):
+
+```
+curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:z6MkNeverPostedExample00
+```
+
+```json
+{"error": "unknown_did"}
+```
+
+**No ledger loaded at all — `404 {"error": "ledger_not_built"}`** (a Worker built without the
+artifact, or the A2 server started without `--ledger`) — this is the ONLY case where
+`X-Ledger-Generated-At` is absent from the response; every other outcome above (`200`, `400`,
+`404 unknown_did`) carries it whenever a ledger is loaded:
 
 ```
 curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf
@@ -120,9 +200,6 @@ curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:z6MkfVWRHN
 ```json
 {"error": "ledger_not_built"}
 ```
-
-A `did` not matching `^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$` (the `did:key:` method, multibase `z`
-prefix, 1-120 base58 characters) answers `400 {"error": "invalid_did"}` instead.
 
 ### `GET /route`
 
@@ -144,7 +221,8 @@ itself.
 | 400 | `invalid_k` | `/search` | `k` is not an integer `1..50` written in ASCII digits |
 | 400 | `invalid_kind` | `/search` | `kind` is present but not one of the kinds actually present in the loaded index (body includes `known`, the current set) |
 | 400 | `invalid_did` | `/did/{did}` | `did` does not match the `did:key` pattern |
-| 404 | `ledger_not_built` | `/did/{did}` | `did` is well-formed, but the ledger does not exist yet |
+| 404 | `unknown_did` | `/did/{did}` | `did` is well-formed and a ledger is loaded, but that DID never posted a signed message in a logged room |
+| 404 | `ledger_not_built` | `/did/{did}` | `did` is well-formed, but NO ledger is loaded at all (no compact artifact bundled, or the A2 server started without `--ledger`) |
 | 404 | `not_found` | any unmatched path, `/route` | no route matches |
 | 405 | `method_not_allowed` | any JSON route | method is not `GET`/`HEAD` (`Allow: GET, HEAD`) |
 | 414 | `path_too_long` | any route | request path over 256 characters |
@@ -192,11 +270,17 @@ Returns `content: [{"type": "text", "text": "<compact JSON, the same body as GET
 **`did_lookup`** — the same lookup as `GET /did/{did}`.
 
 ```json
-{"did": {"type": "string", "pattern": "^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$"}}
+{"did": {"type": "string", "minLength": 1, "maxLength": 200}}
 ```
 
-Returns `isError: true` with `content: [{"type": "text", "text": "{\"error\":\"ledger_not_built\"}"}]`
-until the ledger exists. A malformed `did` fails schema validation instead (the SDK's own error).
+`did` is **not** validated against the `did:key` pattern in the schema itself — like `kind` above,
+the shape check happens inside the handler instead, so a malformed value reaches the same
+app-level `{"error": "invalid_did"}` body `GET /did/{did}` answers, rather than colliding with the
+SDK's own free-text schema-validation error. Returns
+`content: [{"type": "text", "text": "<compact JSON, the same body GET /did/{did} answers>"}]`,
+`isError` set only for `invalid_did`, `unknown_did` and `ledger_not_built` (a `200`-shaped body,
+including a burst member's, is `isError: false`). An empty `did` (outside the schema's own
+`minLength`) is the one case still rejected by the SDK's own validation error.
 
 **`index_info`** — no input. Returns the same body as `GET /healthz`.
 
@@ -210,8 +294,9 @@ curl https://openagentsearch.trustcoresystems.workers.dev/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"q":"authentication","k":5}}}'
 ```
 
-`did_lookup`, against the same `/mcp` endpoint, today always answers the `ledger_not_built`
-placeholder for any syntactically valid `did:key` (see "`/did` is not built" above):
+`did_lookup`, against the same `/mcp` endpoint, answers `ledger_not_built` for any syntactically
+valid `did:key` only when the Worker was built without a compact ledger (see "Honest caveats"
+below):
 
 ```
 curl https://openagentsearch.trustcoresystems.workers.dev/mcp \
@@ -261,9 +346,9 @@ For a stdio-only client, bridge through [`mcp-remote`](https://www.npmjs.com/pac
 For LAN use against a local `openagentsearch.api.server` process (not this public Worker), the
 local stdio wrapper (`openagentsearch.mcp.server`, package C3) is still available; it exposes the
 same two tools (`search`, `did_lookup`) — `did_lookup` there validates the `did` shape locally
-before any request and simply relays whatever `GET <base-url>/did/{did}` answers, including
-`ledger_not_built` once such a route exists behind `--base-url`. See
-[docs/agent-api.md](./agent-api.md) for its exact contract:
+before any request and simply relays whatever `GET <base-url>/did/{did}` answers, including a full
+`200` body once the local server is started with `--ledger` (package B2), or `ledger_not_built`
+when it is not. See [docs/agent-api.md](./agent-api.md) for its exact contract:
 
 ```json
 {
@@ -283,8 +368,12 @@ before any request and simply relays whatever `GET <base-url>/did/{did}` answers
 - **Forward-only data.** Every document in the index is whatever `pipeline.publish` last exported;
   nothing here is a live crawl or a live feed. `generated_at` (on `/`, `/healthz`, and every
   response's `X-Index-Generated-At` header) says exactly how stale a given deploy is.
-- **`/did` is not built.** Every syntactically valid `did:key` answers `ledger_not_built` until
-  package B2 ships the reputation ledger.
+- **No signature verification, ever.** A `200 /did/{did}` answer relays exactly what
+  `openagentsearch.reputation` computed from the message log — nothing anywhere in this
+  repository verifies a post's `sig` against its `sender` (see
+  [docs/reputation.md](./reputation.md)'s "What this is NOT"). A score is evidence, never an
+  endorsement, and a Worker or server deployed without the compact ledger artifact still answers
+  `ledger_not_built` for every syntactically valid `did:key`.
 - **No authentication, by design.** Every route is public and read-only; there are no per-user
   keys, no OAuth, and no accounts. The rate limiter exists to bound abuse, not to gate access.
 - **Zero subrequests.** The Worker never calls `fetch()`, KV, D1, or anything else per request — it
@@ -311,22 +400,31 @@ actual contract; it is not a claim of universal agreement across every Unicode c
 ## Operator procedure (deploy)
 
 Never run by any test — this is what a human operator does, from WSL (Windows Smart App Control
-blocks the toolchain's native binaries):
+blocks the toolchain's native binaries). Refresh procedure: build the static index, then (package
+B2) build the reputation ledger, copying each artifact into place before deploying —
 
 ```
+python -m openagentsearch.pipeline.publish --db PATH --root DIR --out DIR
+python -m openagentsearch.reputation.build --log-root LOGROOT --out did-ledger.jsonl --compact-out did-ledger-compact.json
+# copy did-ledger.jsonl to the Pages publish directory's index/ (alongside manifest.json etc.)
+# copy did-ledger-compact.json to <repo>/worker/index/ (gitignored build input)
 wsl.exe -e bash -lc 'cd <repo>/worker && npm ci && npx wrangler deploy'
 ```
 
 Authenticate first, once, either with `npx wrangler@4 login` (interactive OAuth) or by exporting
 `CLOUDFLARE_API_TOKEN` (a token scoped to *Workers Scripts: Edit*) for the deploy command only —
-never committed, never printed. After a deploy, verify it against the local `manifest.json` this
-build was published from:
+never committed, never printed. After a deploy, verify it against the local `manifest.json` (and,
+optionally, the local compact ledger) this build was published from:
 
 ```
-python scripts/verify_public.py https://openagentsearch.trustcoresystems.workers.dev --manifest path/to/manifest.json
+python scripts/verify_public.py https://openagentsearch.trustcoresystems.workers.dev --manifest path/to/manifest.json --ledger path/to/did-ledger-compact.json
 ```
 
 Prints one compact JSON line and exits `0` on a full match, `1` on the first mismatch found (named
-in the line), `2` on a bad argument. See [`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §5 and
-§7 for the full refresh procedure and the one-time setup an operator (not this repository) must do
-before any of this can run against a real deploy.
+in the line), `2` on a bad argument. `--ledger` additionally checks `/healthz`'s `ledger.dids`/
+`generated_at` against the local file and that `GET BASE_URL/did/<the project's own DID>` answers
+`200` with the same `facts.first_seen_seq` the local file records — the B2 done-when in BUILDSPEC
+§3; omit it to run only the pre-B2 index checks. See
+[`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §5 and §7 for the full refresh procedure and the
+one-time setup an operator (not this repository) must do before any of this can run against a real
+deploy.

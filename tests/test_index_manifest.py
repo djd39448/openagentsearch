@@ -264,7 +264,8 @@ def test_store_aware_healthz_over_real_server():
                 expected = (
                     b'{"status":"ok","index":'
                     b'{"indexed":1,"failed":1,"superseded":0,"refused":0},'
-                    b'"kinds":{"html":{"indexed":1,"failed":1,"superseded":0,"refused":0}}}'
+                    b'"kinds":{"html":{"indexed":1,"failed":1,"superseded":0,"refused":0}},'
+                    b'"ledger":null}'
                 )
                 assert body == expected
             finally:

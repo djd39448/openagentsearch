@@ -1,5 +1,6 @@
-// Package C2b, spec Tests item 4: the composed Worker (`worker/src/index.js`, JSON routes +
-// `/mcp`) through `makeWorker(fixtureIndex)`. Needs `node_modules` (`agents`,
+// Package C2b, spec Tests item 4 (extended by package B2's `did_lookup`/`index_info` ledger
+// cases): the composed Worker (`worker/src/index.js`, JSON routes + `/mcp`) through
+// `makeWorker(fixtureIndex[, ledgerFixture])`. Needs `node_modules` (`agents`,
 // `@modelcontextprotocol/server`, `zod`) so this directory runs from WSL, never plain Windows
 // Node -- see the repository's test recipes. Every `Request` carries a `Host` header the MCP
 // handler validates (`openagentsearch.example.workers.dev`), or it answers `403`.
@@ -12,6 +13,7 @@ import path from "node:path";
 
 import { makeWorker } from "../src/index.js";
 import { search } from "../src/search.js";
+import { makeWorker as makeJsonWorker } from "../src/routes.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..");
@@ -21,6 +23,19 @@ const INDEX = JSON.parse(
     "utf-8",
   ),
 );
+// Package B2: the compact reputation-ledger fixture (see worker/test/router.test.mjs's own
+// comment) -- used only by the `did_lookup` tests below; every other test in this file omits it
+// (ledger stays `null`, so `did_lookup` keeps answering the pre-B2 `ledger_not_built` placeholder,
+// unaffected by this fixture's existence).
+const LEDGER = JSON.parse(
+  readFileSync(
+    path.join(REPO_ROOT, "tests", "fixtures", "reputation", "compact-fixture.json"),
+    "utf-8",
+  ),
+);
+const NON_BURST_DID = Object.keys(LEDGER.non_burst).sort()[0];
+const BURST_DID = Object.keys(LEDGER.burst)[0];
+const UNKNOWN_DID = "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf";
 
 const HOST = "openagentsearch.example.workers.dev";
 const BASE = `https://${HOST}`;
@@ -60,12 +75,12 @@ async function readRpcMessage(res) {
 
 /**
  * @param {object} body a JSON-RPC request/notification object (jsonrpc/id/method/params)
- * @param {{env?: unknown, headers?: Record<string, string>, method?: string}} [opts]
+ * @param {{env?: unknown, headers?: Record<string, string>, method?: string, ledger?: object | null}} [opts]
  * @returns {Promise<Response>}
  */
 async function postMcp(body, opts = {}) {
-  const { env = ALWAYS_ALLOW, headers = {}, method = "POST" } = opts;
-  const worker = makeWorker(INDEX);
+  const { env = ALWAYS_ALLOW, headers = {}, method = "POST", ledger = null } = opts;
+  const worker = makeWorker(INDEX, ledger);
   const request = new Request(`${BASE}/mcp`, {
     method,
     headers: {
@@ -124,10 +139,14 @@ test("tools/list lists exactly search, did_lookup, index_info with the documente
   assert.equal(byName.search.inputSchema.properties.k.default, 10);
 
   assert.deepEqual(byName.did_lookup.inputSchema.required, ["did"]);
-  assert.equal(
-    byName.did_lookup.inputSchema.properties.did.pattern,
-    "^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$",
-  );
+  // `did` is a plain bounded string in the SCHEMA, not `z.string().regex(...)` -- like `kind`
+  // above, the `did:key` shape is checked inside the handler instead, so a malformed value
+  // reaches the app-level `{"error": "invalid_did"}` body (`handoff/B2-SPEC.md` item 4) rather
+  // than being short-circuited into the SDK's own free-text schema-validation error.
+  assert.equal(byName.did_lookup.inputSchema.properties.did.type, "string");
+  assert.equal(byName.did_lookup.inputSchema.properties.did.pattern, undefined);
+  assert.equal(byName.did_lookup.inputSchema.properties.did.minLength, 1);
+  assert.equal(byName.did_lookup.inputSchema.properties.did.maxLength, 200);
 
   assert.deepEqual(Object.keys(byName.index_info.inputSchema.properties || {}), []);
 });
@@ -175,13 +194,88 @@ test("tools/call did_lookup answers isError:true with ledger_not_built for a wel
   const res = await postMcp(
     rpc("tools/call", {
       name: "did_lookup",
-      arguments: { did: "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf" },
+      arguments: { did: UNKNOWN_DID },
     }),
   );
   const message = await readRpcMessage(res);
   assert.equal(message.result.isError, true);
   const body = JSON.parse(message.result.content[0].text);
   assert.deepEqual(body, { error: "ledger_not_built" });
+});
+
+test("tools/call did_lookup answers isError:false for a known non-burst did, with a ledger loaded", async () => {
+  const res = await postMcp(
+    rpc("tools/call", { name: "did_lookup", arguments: { did: NON_BURST_DID } }),
+    { ledger: LEDGER },
+  );
+  const message = await readRpcMessage(res);
+  assert.equal(message.result.isError, false);
+  const body = JSON.parse(message.result.content[0].text);
+  assert.equal(body.did, NON_BURST_DID);
+  assert.equal(body.burst, false);
+  assert.equal(body.score, LEDGER.non_burst[NON_BURST_DID].score.score);
+  assert.ok(body.facts);
+});
+
+test("tools/call did_lookup answers isError:false for a known burst did (score 0, facts null)", async () => {
+  const res = await postMcp(
+    rpc("tools/call", { name: "did_lookup", arguments: { did: BURST_DID } }),
+    { ledger: LEDGER },
+  );
+  const message = await readRpcMessage(res);
+  // A burst member is still a successful 200 lookup -- only invalid_did/unknown_did/
+  // ledger_not_built are isError:true (handoff/B2-SPEC.md item 4).
+  assert.equal(message.result.isError, false);
+  const body = JSON.parse(message.result.content[0].text);
+  assert.equal(body.burst, true);
+  assert.equal(body.score, 0);
+  assert.equal(body.facts, null);
+});
+
+test("tools/call did_lookup answers isError:true with unknown_did for an unknown well-formed did", async () => {
+  const res = await postMcp(
+    rpc("tools/call", { name: "did_lookup", arguments: { did: UNKNOWN_DID } }),
+    { ledger: LEDGER },
+  );
+  const message = await readRpcMessage(res);
+  assert.equal(message.result.isError, true);
+  const body = JSON.parse(message.result.content[0].text);
+  assert.deepEqual(body, { error: "unknown_did" });
+});
+
+test("tools/call did_lookup matches GET /did/{did} exactly (route parity)", async () => {
+  for (const did of [NON_BURST_DID, BURST_DID, UNKNOWN_DID, "not-a-did"]) {
+    const mcpRes = await postMcp(
+      rpc("tools/call", { name: "did_lookup", arguments: { did } }),
+      { ledger: LEDGER },
+    );
+    const message = await readRpcMessage(mcpRes);
+    const mcpBody = JSON.parse(message.result.content[0].text);
+
+    const jsonWorker = makeJsonWorker(INDEX, LEDGER);
+    const routeRes = await jsonWorker.fetch(
+      new Request(`${BASE}/did/${did}`, { method: "GET" }),
+      ALWAYS_ALLOW,
+    );
+    const routeBody = await routeRes.json();
+
+    assert.deepEqual(mcpBody, routeBody, did);
+  }
+});
+
+// --- tools/call index_info ------------------------------------------------------------------
+
+test("tools/call index_info includes the ledger counts when a ledger is loaded", async () => {
+  const res = await postMcp(rpc("tools/call", { name: "index_info", arguments: {} }), {
+    ledger: LEDGER,
+  });
+  const message = await readRpcMessage(res);
+  const body = JSON.parse(message.result.content[0].text);
+  assert.deepEqual(body.ledger, {
+    dids: LEDGER.dids,
+    bursts: LEDGER.bursts,
+    generated_at: LEDGER.generated_at,
+  });
 });
 
 // --- invalid arguments -----------------------------------------------------------------------
@@ -195,10 +289,18 @@ test("invalid tool arguments produce the SDK's own validation error", async () =
   assert.match(message.result.content[0].text, /[Vv]alidation/);
 });
 
-test("a did that does not match the did:key pattern is rejected by the schema", async () => {
+test("a did that does not match the did:key pattern answers the app-level invalid_did body, not a schema error", async () => {
   const res = await postMcp(
     rpc("tools/call", { name: "did_lookup", arguments: { did: "not-a-did" } }),
   );
+  const message = await readRpcMessage(res);
+  assert.equal(message.result.isError, true);
+  const body = JSON.parse(message.result.content[0].text);
+  assert.deepEqual(body, { error: "invalid_did" });
+});
+
+test("an empty did is still rejected by the schema (bounds, not shape)", async () => {
+  const res = await postMcp(rpc("tools/call", { name: "did_lookup", arguments: { did: "" } }));
   const message = await readRpcMessage(res);
   assert.equal(message.result.isError, true);
 });

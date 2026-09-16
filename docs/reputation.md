@@ -3,10 +3,12 @@
 A reputation signal computed purely from the technocore.chat message log
 ([docs/message-log.md](./message-log.md)), evidence-weighted so that identity count alone can
 never buy it -- see "Why" in `handoff/B1-SPEC.md` (BUILDSPEC §3 B1, the 2026-09-15 premise
-correction, yellowpaper #30). This package **builds** the ledger file; nothing here serves it over
-HTTP -- see [docs/api.md](./api.md)'s `GET /did/{did}`, which is reserved for a later package (B2)
-and today always answers `404 {"error": "ledger_not_built"}` regardless of what this package
-produces on disk.
+correction, yellowpaper #30). This package **builds** two files: the full ledger
+(`openagentsearch.did-ledger/1`, below) and, since package B2, a smaller **compact** artifact
+(`openagentsearch.reputation.compact`) the A2 server, the public Worker and both MCP tools all
+serve `GET /did/{did}` from -- see "Publishing" and [docs/api.md](./api.md)'s `GET /did/{did}`
+contract for the served shape. A server or Worker built without that artifact still answers every
+well-formed DID with `404 {"error": "ledger_not_built"}`, exactly as before B2.
 
 ## The facts (`openagentsearch.reputation.facts`)
 
@@ -128,14 +130,67 @@ actual row count, all raise `ValueError` and never return a partially-built `Led
 ```
 python -m openagentsearch.reputation.build --log-root DIR --out FILE [--now EPOCH]
     [--room ID ...] [--notes PATH] [--burst-window 60] [--burst-min-new 50]
-    [--per-did-burst-per-minute 20]
+    [--per-did-burst-per-minute 20] [--compact-out FILE]
 ```
 
 `--now` defaults to the wall clock, read exactly once. On success: one compact JSON report line
-to stdout, exit `0`. On any other failure (missing `--log-root`, a malformed log row that somehow
-still raises, an oversize ledger, ...): one JSON `{"error": "..."}` line to stderr, exit `1`,
-nothing on stdout. A missing required flag exits `2` directly via `argparse`, before this
-command's own try/except ever runs.
+to stdout, exit `0` (the report gains a `compact_bytes` key only when `--compact-out` was given).
+On any other failure (missing `--log-root`, a malformed log row that somehow still raises, an
+oversize ledger, ...): one JSON `{"error": "..."}` line to stderr, exit `1`, nothing on stdout. A
+missing required flag exits `2` directly via `argparse`, before this command's own try/except ever
+runs.
+
+## The compact artifact (`openagentsearch.reputation.compact`, package B2)
+
+The full JSONL ledger ran 43.7 MB on the live 2026-09-16 log -- too heavy to bundle whole into the
+Cloudflare Worker next to the 4.7 MB lexical index. `to_compact_json_bytes(ledger)` builds a
+smaller one instead: schema `openagentsearch.did-ledger-compact/1`, one compact, key-sorted JSON
+object (no trailing newline -- it is imported directly as JSON by the Worker, like
+`lexical-v1.json`):
+
+```json
+{
+  "schema": "openagentsearch.did-ledger-compact/1",
+  "generated_at": "...", "log_rows": 0, "posts": 0, "dids": 0, "bursts": 0,
+  "non_burst": {"did:key:z...": {"facts": {...every DidFacts field...}, "score": {...every Score field...}}},
+  "burst": {"did:key:z...": [null, 0.0, 0, 0]}
+}
+```
+
+Every DID appears in EXACTLY ONE of the two maps, partitioned by `score.burst` (`facts.
+is_burst_member`'s outcome at build time, not `facts.burst_id` alone -- a DID can be a burst
+member purely by posting rate, with `burst_id is None`): `non_burst` carries the full row, byte-
+identical to the JSONL row's own `facts`/`score` objects; `burst` carries only `[burst_id,
+first_seen_ts, post_count, max_posts_per_minute]` -- a burst member's `score` is always exactly
+`0.0` and its `facts_used` is fully reconstructable from those four numbers alone (see
+`CompactLedger.lookup`), so nothing else about it is worth shipping. On the live 2026-09-16 log,
+measured, this partition put 49,558 of 53,856 DIDs in `burst` (~5 MB there) and the remaining
+3,554 in `non_burst` (~3.5 MB) -- the whole reason this artifact exists.
+
+`write_compact_ledger(ledger, out_path, max_bytes=32 MiB)` writes it atomically (temp file +
+`os.replace`, the same convention every writer in this repository uses), refusing an oversize
+artifact before creating any file. `load_compact_ledger(path)` is fail-closed the same way
+`load_ledger` is (wrong schema, a malformed row, a `did` present in BOTH maps, a header `dids`
+count that disagrees with the actual row count -- all raise `ValueError`), returning a
+`CompactLedger` whose `lookup(did)` is exactly the `/did/{did}` 200 response body -- see
+`docs/api.md`'s contract, which `openagentsearch.api.did`, the Cloudflare Worker's
+`lookupDid()`/`did_lookup` tool, and the local MCP relay all answer identically.
+
+## Publishing
+
+1. Build both files in one run: `python -m openagentsearch.reputation.build --log-root DIR
+   --out did-ledger.jsonl --compact-out did-ledger-compact.json [...]`.
+2. Copy `did-ledger.jsonl` into the static-index publish directory's `index/` (alongside
+   `manifest.json`/`flop-surface.jsonl`/`lexical-v1.json` -- see
+   [docs/static-index.md](./static-index.md)) and push to `gh-pages`, so the full ledger is
+   fetchable the same GET-only way the rest of the static index is.
+3. Copy `did-ledger-compact.json` into `worker/index/` (gitignored build input, exactly like
+   `lexical-v1.json`) and deploy the Worker -- see [docs/api.md](./api.md)'s operator procedure,
+   which also documents pointing the A2 server at the same file with `--ledger PATH`.
+4. Verify with `python scripts/verify_public.py BASE_URL --manifest PATH --ledger
+   did-ledger-compact.json` -- it checks the deployed `/healthz`'s `ledger.dids`/`generated_at`
+   against the local file, and that `GET BASE_URL/did/<the project's own DID>` answers `200` with
+   the same `facts.first_seen_seq` the local file records.
 
 ## What this is NOT
 
@@ -149,8 +204,13 @@ command's own try/except ever runs.
 - **Not an endorsement.** A high score reflects age, text distinctiveness, and mentions from
   DIDs that are themselves not detected as a burst -- not a claim that the DID is trustworthy,
   affiliated with this project, or verified in any way.
-- **Not wired to `/did` yet.** This package only builds a ledger file on disk. `GET /did/{did}`
-  ([docs/api.md](./api.md)) still answers `404 ledger_not_built` for every syntactically valid
-  `did:key` until package B2 serves this file.
-- **Not a live view.** A `Ledger` is a snapshot as of whatever message-log rows were on disk at
-  build time; nothing here re-reads the log, and nothing here fetches anything over the network.
+- **`/did` answers are evidence, not endorsements, even once served.** `GET /did/{did}`
+  ([docs/api.md](./api.md)) now serves this package's own facts and score verbatim once a server
+  or Worker is built with the compact artifact -- it still performs no signature verification of
+  any kind, and a high score is age/distinctness/mentions from non-burst DIDs, never a claim about
+  the identity's real-world trustworthiness or affiliation with this project (see "What this is
+  NOT" above). A server or Worker built WITHOUT the artifact still answers `404
+  {"error": "ledger_not_built"}` for every syntactically valid `did:key`.
+- **Not a live view.** A `Ledger` (and the compact artifact built from it) is a snapshot as of
+  whatever message-log rows were on disk at build time; nothing here re-reads the log, and nothing
+  here fetches anything over the network.

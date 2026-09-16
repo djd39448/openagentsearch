@@ -203,7 +203,10 @@ def build_ledger(
     return ledger, report
 
 
-def _facts_to_obj(f: DidFacts) -> dict[str, Any]:
+def facts_to_obj(f: DidFacts) -> dict[str, Any]:
+    """`f` as the exact JSON-shaped object every on-disk row's `"facts"` field carries (and, since
+    package B2, the same shape `compact.py`'s `non_burst` entries reuse verbatim -- this is the
+    ONE canonical `DidFacts` JSON shape, not one of two)."""
     return {
         "did": f.did,
         "first_seen_seq": f.first_seen_seq,
@@ -224,7 +227,9 @@ def _facts_to_obj(f: DidFacts) -> dict[str, Any]:
     }
 
 
-def _score_to_obj(s: Score) -> dict[str, Any]:
+def score_to_obj(s: Score) -> dict[str, Any]:
+    """`s` as the exact JSON-shaped object every on-disk row's `"score"` field carries -- the same
+    canonical shape `compact.py`'s `non_burst` entries reuse."""
     return {
         "did": s.did,
         "score": s.score,
@@ -252,8 +257,8 @@ def to_jsonl_bytes(ledger: Ledger) -> bytes:
     for row in sorted(ledger.rows, key=lambda r: r.facts.did):
         obj = {
             "did": row.facts.did,
-            "facts": _facts_to_obj(row.facts),
-            "score": _score_to_obj(row.score),
+            "facts": facts_to_obj(row.facts),
+            "score": score_to_obj(row.score),
         }
         lines.append(json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     return ("\n".join(lines) + "\n").encode("utf-8")
@@ -319,7 +324,7 @@ def _require_str_list(value: object, name: str) -> list[str]:
     return value
 
 
-def _obj_to_facts(obj: object) -> DidFacts:
+def obj_to_facts(obj: object) -> DidFacts:
     if not isinstance(obj, dict):
         raise _fail(f"facts must be an object, got {type(obj).__name__}")
     rooms_posted = _require_str_list(obj.get("rooms_posted"), "facts.rooms_posted")
@@ -378,7 +383,7 @@ def _obj_to_facts(obj: object) -> DidFacts:
     )
 
 
-def _obj_to_score(obj: object) -> Score:
+def obj_to_score(obj: object) -> Score:
     if not isinstance(obj, dict):
         raise _fail(f"score must be an object, got {type(obj).__name__}")
     facts_used_raw = obj.get("facts_used")
@@ -464,8 +469,8 @@ def load_ledger(path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> Ledger:
         did = obj.get("did")
         if not isinstance(did, str) or not did:
             raise _fail(f"row.did must be a non-empty string, got {did!r}")
-        facts = _obj_to_facts(obj.get("facts"))
-        score = _obj_to_score(obj.get("score"))
+        facts = obj_to_facts(obj.get("facts"))
+        score = obj_to_score(obj.get("score"))
         if facts.did != did or score.did != did:
             raise _fail(
                 f"row did mismatch: row={did!r} facts.did={facts.did!r} score.did={score.did!r}"

@@ -39,9 +39,10 @@ DID_LOOKUP_TOOL: Dict[str, Any] = {
     "name": "did_lookup",
     "description": (
         "Look up ledger facts, score, and provenance for one did:key identity from the public "
-        "GET /did/{did} route. The reputation ledger (package B2) is not published yet: until it "
-        "is, every syntactically valid did:key answers ledger_not_built. This tool performs no "
-        "signature or cryptographic verification of its own -- it only relays what the route says."
+        "GET /did/{did} route on the configured --base-url: a full 200 body once that server was "
+        "started with --ledger PATH (package B2), or that route's own ledger_not_built placeholder "
+        "when it was not. This tool performs no signature or cryptographic verification of its "
+        "own -- it only relays what the route says."
     ),
     "inputSchema": {
         "type": "object",
@@ -124,8 +125,9 @@ class MCPServer:
 
         NOT guaranteed: this performs no signature or cryptographic verification of any kind and
         makes no claim about the ledger facts' authenticity -- it only relays whatever the public
-        route currently says, including that route's own "ledger_not_built" placeholder answer
-        until the reputation ledger (package B2) is published.
+        route on the configured base_url currently says: a full 200 body once that server was
+        started with --ledger PATH (package B2), or that route's own "ledger_not_built"
+        placeholder when it was not.
         """
         if not DID_PATTERN.match(did):
             return 400, {"error": "invalid_did"}

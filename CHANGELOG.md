@@ -23,6 +23,29 @@ package publication, or hosted release exists.
   DIR --out FILE`. Standard library only, no network. `GET /did/{did}` still answers `404
   ledger_not_built` until a later package serves this file. See
   [docs/reputation.md](./docs/reputation.md).
+- `openagentsearch.reputation.compact` (package B2): a compact Worker-sized artifact
+  (`openagentsearch.did-ledger-compact/1`) built from the same `Ledger` -- full `facts`/`score`
+  rows for non-burst DIDs, a four-field summary (`burst_id`, `first_seen_ts`, `post_count`,
+  `max_posts_per_minute`) for burst members (49,558 of 53,856 DIDs on the live 2026-09-16 log),
+  since a burst member always scores `0.0` regardless of anything else. `write_compact_ledger`/
+  `load_compact_ledger` are atomic/fail-closed, the same convention as the full ledger and every
+  other on-disk artifact in this repository; `CompactLedger.lookup(did)` returns the exact
+  `/did/{did}` response body. `python -m openagentsearch.reputation.build` gains
+  `--compact-out FILE` (writes both files from one build; report gains `compact_bytes`). `GET
+  /did/{did}` now answers the same shape everywhere it is reached: `200` (full facts for a
+  non-burst DID, `facts: null` + a synthesized `facts_used` for a burst member), `400
+  invalid_did`, `404 unknown_did` (well-formed, absent from the ledger), or `404
+  ledger_not_built` (no ledger loaded at all) -- on the A2 server (`openagentsearch.api.did`,
+  new `--ledger PATH` flag; `/healthz` gains a `ledger` field), the public Worker
+  (`worker/src/routes.js`'s `makeWorker(index, ledger = null)`, `/healthz` and `/` gain the same
+  `ledger` field, `did_lookup`/`index_info` tools updated), and both MCP tools (remote and
+  local). Every `/did/{did}` response carries `X-Ledger-Generated-At` whenever a ledger is
+  loaded. `scripts/verify_public.py` gains `--ledger PATH`, checking a deployed `/healthz`'s
+  `ledger.dids`/`generated_at` against a local compact artifact and that `GET
+  BASE_URL/did/<our did>` answers `200` with the same `facts.first_seen_seq` -- the B2
+  done-when in BUILDSPEC §3. No signature verification anywhere in this path; a score remains
+  evidence, never an endorsement. See [docs/reputation.md](./docs/reputation.md) and
+  [docs/api.md](./docs/api.md).
 
 ## 0.2.0 - 2026-09-16
 

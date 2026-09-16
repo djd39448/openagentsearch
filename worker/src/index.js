@@ -18,9 +18,17 @@ import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 
 import INDEX from "../index/lexical-v1.json" with { type: "json" };
+import LEDGER from "../index/did-ledger-compact.json" with { type: "json" };
 import PACKAGE from "../package.json" with { type: "json" };
 import { search } from "./search.js";
-import { DID_RE, checkRateLimit, handleJsonRoute, healthzBody, knownKinds } from "./routes.js";
+import {
+  DID_RE,
+  checkRateLimit,
+  handleJsonRoute,
+  healthzBody,
+  knownKinds,
+  lookupDid,
+} from "./routes.js";
 
 const SERVICE_NAME = "openagentsearch";
 
@@ -34,9 +42,11 @@ const SERVICE_NAME = "openagentsearch";
  * those happen around it, in `makeWorker` (this module) and inside `createMcpHandler` itself.
  *
  * @param {object} index a parsed `lexical-v1.json` document
+ * @param {object | null} [ledger] a parsed `did-ledger-compact.json` document, or `null`/omitted
+ *   (package B2)
  * @returns {McpServer}
  */
-export function createServer(index) {
+export function createServer(index, ledger = null) {
   const server = new McpServer({ name: SERVICE_NAME, version: PACKAGE.version });
   // Computed from `index`, not hard-coded -- see the kind rule at `./routes.js`'s `knownKinds`.
   // `kind` itself stays a plain bounded string in the schema (not `z.enum`) so an unknown value
@@ -76,17 +86,37 @@ export function createServer(index) {
     "did_lookup",
     {
       description:
-        "Look up a did:key identity on the OpenAgentSearch reputation ledger. The ledger is not " +
-        "built yet (package B2); every well-formed did:key currently answers ledger_not_built.",
+        "Look up a did:key identity on the OpenAgentSearch reputation ledger -- the same lookup " +
+        "as GET /did/{did}, including 400 {\"error\":\"invalid_did\"} for a malformed did. " +
+        "Answers ledger_not_built if the Worker was built without a ledger.",
+      // `did` stays a plain bounded string here (not `z.string().regex(DID_RE)`) for the same
+      // reason `search`'s `kind` does, just above: a value the SDK's own schema validation would
+      // reject never reaches the handler below, so it can never produce the documented
+      // `{"error": "invalid_did"}` body (`docs/api.md`, `handoff/B2-SPEC.md` item 4: "did_lookup
+      // returns the same body ... isError: true only for invalid_did, unknown_did and
+      // ledger_not_built"). `lookupDid`/`handleJsonRoute` already validate the shape against
+      // `DID_RE` themselves and answer that exact body for a non-match.
       inputSchema: z.object({
-        did: z.string().regex(DID_RE),
+        did: z.string().min(1).max(200),
       }),
     },
-    // eslint-disable-next-line no-unused-vars
-    async ({ did }) => ({
-      content: [{ type: "text", text: JSON.stringify({ error: "ledger_not_built" }) }],
-      isError: true,
-    }),
+    async ({ did }) => {
+      // Same manual check `handleJsonRoute` (./routes.js) makes before ever calling `lookupDid`
+      // -- `lookupDid` itself assumes its `did` argument already passed `DID_RE` (see its own
+      // docstring), so skipping this here would fall through to a plain ledger miss
+      // (`{"error":"unknown_did"}`) instead of the documented `invalid_did` body.
+      if (!DID_RE.test(did)) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: "invalid_did" }) }],
+          isError: true,
+        };
+      }
+      const { status, body } = lookupDid(ledger, did);
+      return {
+        content: [{ type: "text", text: JSON.stringify(body) }],
+        isError: status !== 200,
+      };
+    },
   );
 
   server.registerTool(
@@ -96,7 +126,7 @@ export function createServer(index) {
       inputSchema: z.object({}),
     },
     async () => ({
-      content: [{ type: "text", text: JSON.stringify(healthzBody(index)) }],
+      content: [{ type: "text", text: JSON.stringify(healthzBody(index, ledger)) }],
     }),
   );
 
@@ -112,10 +142,13 @@ export function createServer(index) {
  * `createMcpHandler`'s; this function only decides whether to reach it at all.
  *
  * @param {object} index a parsed `lexical-v1.json` document
+ * @param {object | null} [ledger] a parsed `did-ledger-compact.json` document, or `null`/omitted
+ *   (`/did/{did}` and the `did_lookup` tool then answer `ledger_not_built` for every well-formed
+ *   DID -- package B2)
  * @returns {{fetch: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>, handle: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>}}
  */
-export function makeWorker(index) {
-  const mcpHandler = createMcpHandler(() => createServer(index), { route: "/mcp" });
+export function makeWorker(index, ledger = null) {
+  const mcpHandler = createMcpHandler(() => createServer(index, ledger), { route: "/mcp" });
   // Computed once per loaded `index`, not per request or hard-coded -- see the kind rule at
   // `./routes.js`'s `knownKinds`. (`createServer` above computes its own copy per MCP request,
   // since `createMcpHandler` builds a fresh server per request; this one backs only the JSON
@@ -135,13 +168,13 @@ export function makeWorker(index) {
       if (limited) return limited;
       return mcpHandler(request, env, ctx);
     }
-    return handleJsonRoute(index, request, env, knownKindsSet);
+    return handleJsonRoute(index, ledger, request, env, knownKindsSet);
   }
 
   return { fetch: handle, handle };
 }
 
-const worker = makeWorker(INDEX);
+const worker = makeWorker(INDEX, LEDGER);
 
 /** The default-index-bound handler, exported standalone for callers that want it directly. */
 export const handle = worker.handle;

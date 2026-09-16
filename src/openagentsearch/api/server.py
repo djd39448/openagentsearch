@@ -6,8 +6,25 @@ from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler
 from typing import Any
 
-JSONRoute = Callable[[dict[str, list[str]]], tuple[int, dict[str, object]]]
-PrefixJSONRoute = Callable[[str, dict[str, list[str]]], tuple[int, dict[str, object]]]
+# A route answers with `(status, body)`, OR `(status, body, extra_headers)` when it needs a
+# header of its own beyond the common set `create_server` always sends (for example
+# `openagentsearch.api.did`'s `X-Ledger-Generated-At`) -- see `_split_result`. Most routes
+# (`/healthz`, `/search`, `/doc/{sha256}`) never need this and stay 2-tuples unchanged.
+RouteResult = (
+    tuple[int, dict[str, object]] | tuple[int, dict[str, object], dict[str, str]]
+)
+JSONRoute = Callable[[dict[str, list[str]]], RouteResult]
+PrefixJSONRoute = Callable[[str, dict[str, list[str]]], RouteResult]
+
+
+def _split_result(result: RouteResult) -> tuple[int, dict[str, object], dict[str, str]]:
+    """Normalizes a route's return value to `(status, body, extra_headers)` -- a plain 2-tuple
+    gets an empty `extra_headers`; a 3-tuple is returned as-is. Never mutates `result`."""
+    if len(result) == 3:
+        status, data, extra_headers = result
+        return status, data, extra_headers
+    status, data = result
+    return status, data, {}
 
 
 def create_server(
@@ -18,10 +35,13 @@ def create_server(
 ) -> http.server.ThreadingHTTPServer:
     """Create a ThreadingHTTPServer with JSON API routes."""
     
-    # Default healthz route
-    default_routes: dict[str, JSONRoute] = {
-        "/healthz": lambda query_dict: (200, {"status": "ok"})
-    }
+    # Default healthz route (a named function rather than a lambda so its body is typed as
+    # dict[str, object], the RouteResult shape -- a lambda would be inferred as dict[str, str]).
+    def _default_healthz(query_dict: dict[str, list[str]]) -> RouteResult:
+        body: dict[str, object] = {"status": "ok"}
+        return 200, body
+
+    default_routes: dict[str, JSONRoute] = {"/healthz": _default_healthz}
     
     # Merge with user-provided routes
     if routes:
@@ -39,9 +59,11 @@ def create_server(
             
             if route_func is not None:
                 # Exact match found
-                status, data = route_func(query_dict)
+                status, data, extra_headers = _split_result(route_func(query_dict))
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
+                for header_name, header_value in extra_headers.items():
+                    self.send_header(header_name, header_value)
                 response_data = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
                 self.send_header("Content-Length", str(len(response_data)))
                 self.end_headers()
@@ -60,13 +82,17 @@ def create_server(
                             if matched_prefix is None or len(prefix) > len(matched_prefix):
                                 matched_prefix = prefix
                                 matched_handler = handler
-                
+
                 # If we found a matching prefix route, call it
                 if matched_handler:
                     remainder = path[len(matched_prefix):]
-                    status, data = matched_handler(remainder, query_dict)
+                    status, data, extra_headers = _split_result(
+                        matched_handler(remainder, query_dict)
+                    )
                     self.send_response(status)
                     self.send_header("Content-Type", "application/json; charset=utf-8")
+                    for header_name, header_value in extra_headers.items():
+                        self.send_header(header_name, header_value)
                     response_data = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
                     self.send_header("Content-Length", str(len(response_data)))
                     self.end_headers()
@@ -79,7 +105,7 @@ def create_server(
                     self.send_header("Content-Length", str(len(response_data)))
                     self.end_headers()
                     self.wfile.write(response_data)
-        
+
         def do_HEAD(self) -> None:
             # Parse the path and query parameters
             parsed = urllib.parse.urlparse(self.path)
@@ -91,9 +117,11 @@ def create_server(
             
             if route_func is not None:
                 # Exact match found
-                status, data = route_func(query_dict)
+                status, data, extra_headers = _split_result(route_func(query_dict))
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
+                for header_name, header_value in extra_headers.items():
+                    self.send_header(header_name, header_value)
                 response_data = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
                 self.send_header("Content-Length", str(len(response_data)))
                 self.end_headers()
@@ -111,13 +139,17 @@ def create_server(
                             if matched_prefix is None or len(prefix) > len(matched_prefix):
                                 matched_prefix = prefix
                                 matched_handler = handler
-                
+
                 # If we found a matching prefix route, call it
                 if matched_handler:
                     remainder = path[len(matched_prefix):]
-                    status, data = matched_handler(remainder, query_dict)
+                    status, data, extra_headers = _split_result(
+                        matched_handler(remainder, query_dict)
+                    )
                     self.send_response(status)
                     self.send_header("Content-Type", "application/json; charset=utf-8")
+                    for header_name, header_value in extra_headers.items():
+                        self.send_header(header_name, header_value)
                     response_data = json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
                     self.send_header("Content-Length", str(len(response_data)))
                     self.end_headers()

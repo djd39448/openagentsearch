@@ -6,3 +6,4 @@ tests/fixtures/lexical/fixture-index-v1.json -text
 tests/fixtures/lexical/queries.json -text
 worker/src/casefold-table.json -text
 tests/fixtures/reputation/ledger-20.jsonl -text
+tests/fixtures/reputation/compact-fixture.json -text

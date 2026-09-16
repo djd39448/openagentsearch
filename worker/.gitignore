@@ -2,6 +2,8 @@ node_modules/
 dist/
 .wrangler/
 .dev.vars
+# Build inputs bundled at deploy time, never committed: lexical-v1.json (package C2b) and
+# did-ledger-compact.json (package B2) -- see docs/api.md's refresh procedure.
 index/
 test/.tmp/
 test-mcp/.tmp/

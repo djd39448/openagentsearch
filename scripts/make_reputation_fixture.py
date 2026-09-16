@@ -1,9 +1,16 @@
-"""Regenerates the committed message-log fixture package B1 tests replay against:
+"""Regenerates the committed message-log fixture package B1 tests replay against, and (package B2)
+the compact-ledger fixture the Node test suites replay against:
 
   tests/fixtures/reputation/ledger-20.jsonl -- one room's `messages/<room>.jsonl` file (the same
   on-disk row shape `openagentsearch.sources.technocore_messages.MessageLog` writes), covering 20
   synthetic DIDs plus the deliberately-malformed/unsigned rows `tests/test_reputation_facts.py`
   and `tests/test_reputation_ledger.py` check for.
+  tests/fixtures/reputation/compact-fixture.json -- the compact Worker artifact
+  (`openagentsearch.reputation.compact.to_compact_json_bytes`) built from that SAME 20-DID log at
+  default burst/scoring settings, so `worker/test/router.test.mjs` and
+  `worker/test-mcp/mcp.test.mjs` exercise `/did/{did}` and `did_lookup` against real facts/scores
+  rather than a hand-written stand-in. DID B (200 posts inside a few minutes) is its one burst
+  member; every other DID lands in `non_burst`.
 
 Deterministic: every DID, timestamp and piece of text is a pure function of this script's own
 constants (`NOW`, the per-letter age/post-count table below) -- nothing here reads a clock or
@@ -21,11 +28,19 @@ Usage: python scripts/make_reputation_fixture.py
 
 import hashlib
 import json
+import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "src"))  # scripts/ is not a package
+
+from openagentsearch.reputation.compact import to_compact_json_bytes  # noqa: E402
+from openagentsearch.reputation.ledger import build_ledger  # noqa: E402
+
 FIXTURE_PATH = REPO_ROOT / "tests" / "fixtures" / "reputation" / "ledger-20.jsonl"
+COMPACT_FIXTURE_PATH = REPO_ROOT / "tests" / "fixtures" / "reputation" / "compact-fixture.json"
 
 ROOM = "b1"
 DAY_S = 86400.0
@@ -200,6 +215,22 @@ def _rows_to_jsonl(rows: list[_Row]) -> bytes:
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
+def _build_compact_fixture_bytes() -> bytes:
+    """The compact Worker artifact (`compact.to_compact_json_bytes`) built from the SAME 20-DID
+    log this module writes to `FIXTURE_PATH`, at every default burst/scoring setting
+    (`build_ledger`'s own defaults -- the same ones `tests/test_reputation_ledger.py` confirms
+    give `dids == 20, bursts == 0` and DID B, alone, `score.burst is True`). Goes through a real
+    `messages/<room>.jsonl` file and `build_ledger`, not a hand-rolled shortcut, so this fixture
+    is exactly what the real pipeline would produce from the committed `ledger-20.jsonl`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        log_root = Path(tmp)
+        messages_dir = log_root / "messages"
+        messages_dir.mkdir(parents=True, exist_ok=True)
+        (messages_dir / f"{ROOM}.jsonl").write_bytes(_rows_to_jsonl(_build_rows()))
+        ledger, _report = build_ledger(log_root, now=NOW)
+    return to_compact_json_bytes(ledger)
+
+
 def main() -> int:
     FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -209,6 +240,13 @@ def main() -> int:
         raise AssertionError("ledger-20.jsonl is not deterministic across two builds")
 
     FIXTURE_PATH.write_bytes(bytes1)
+
+    compact_bytes1 = _build_compact_fixture_bytes()
+    compact_bytes2 = _build_compact_fixture_bytes()
+    if compact_bytes1 != compact_bytes2:
+        raise AssertionError("compact-fixture.json is not deterministic across two builds")
+    COMPACT_FIXTURE_PATH.write_bytes(compact_bytes1)
+
     print(
         json.dumps(
             {
@@ -219,6 +257,8 @@ def main() -> int:
                 "did_b": DID_B,
                 "room": ROOM,
                 "now": NOW,
+                "compact_fixture_path": str(COMPACT_FIXTURE_PATH),
+                "compact_fixture_bytes": len(compact_bytes1),
             },
             separators=(",", ":"),
         )

@@ -1,10 +1,12 @@
 """Command-line launcher for the OpenAgentSearch HTTP API server.
 
 `python -m openagentsearch.api.server ...` (the module re-exports `main` from here) starts a
-`ThreadingHTTPServer` wired to a `VectorStore` and an embedder, prints one compact JSON line to
-stdout describing where it is listening, and then blocks until it receives SIGINT, SIGTERM, or
-(on Windows) SIGBREAK / CTRL_BREAK_EVENT. On that signal it shuts the server down, closes the
-store, prints one final JSON line, and exits 0.
+`ThreadingHTTPServer` wired to a `VectorStore` and an embedder, plus (package B2) an optional
+`--ledger PATH` compact reputation ledger mounted at `/did/{did}` -- absent, `/did/{did}` answers
+`ledger_not_built` for every well-formed DID, exactly like the public Worker before it is built
+one. Prints one compact JSON line to stdout describing where it is listening, and then blocks
+until it receives SIGINT, SIGTERM, or (on Windows) SIGBREAK / CTRL_BREAK_EVENT. On that signal it
+shuts the server down, closes the store, prints one final JSON line, and exits 0.
 
 This is a development/demo launcher, not a production process supervisor: there is no
 daemonization, no PID file, no log rotation, and no automatic restart or health monitoring.
@@ -23,12 +25,14 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import FrameType
 
+from openagentsearch.api.did import make_did_prefix_route
 from openagentsearch.api.doc import make_doc_route
 from openagentsearch.api.healthz import make_healthz_route
 from openagentsearch.api.search import DocURLResolver, Embedder, make_search_route
 from openagentsearch.api.server import JSONRoute, PrefixJSONRoute, create_server
 from openagentsearch.embed.keyword import KeywordEmbedder
 from openagentsearch.embed.ollama import OllamaEmbedClient
+from openagentsearch.reputation.compact import CompactLedger, load_compact_ledger
 from openagentsearch.vector.store import VectorStore
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
@@ -91,6 +95,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--ollama-url", default="http://127.0.0.1:11434")
     parser.add_argument("--ollama-model", default="nomic-embed-text")
+    parser.add_argument(
+        "--ledger",
+        default=None,
+        help="optional: compact reputation-ledger JSON file (mounts /did/{did}, package B2)",
+    )
     return parser
 
 
@@ -115,13 +124,17 @@ def build_server(args: argparse.Namespace) -> tuple[ThreadingHTTPServer, VectorS
     Does not start serving and does not print anything: the caller runs `serve_forever()`
     (typically on a background thread) and is responsible for eventually calling `shutdown()`,
     `server_close()`, and `store.close()`. Constructing `OllamaEmbedClient` never opens a network
-    connection - the connection, if any, happens lazily on the first `embed()` call.
+    connection - the connection, if any, happens lazily on the first `embed()` call. When
+    `args.ledger` is given, it is loaded fail-closed (`compact.load_compact_ledger`) BEFORE the
+    server is created, so a malformed or missing ledger file fails `build_server()` itself rather
+    than being silently ignored.
 
-    Raises whatever the store, embedder, or socket bind raises (for example a `--db` path whose
-    parent directory does not exist, or a `--port` already in use); `main()` turns that into the
-    documented stderr/exit-code contract rather than letting it propagate. Any such failure that
-    happens after the `VectorStore` is constructed closes that store before re-raising, so a
-    partially-built server never leaks the store's open SQLite connection/file handle.
+    Raises whatever the store, embedder, ledger load, or socket bind raises (for example a `--db`
+    path whose parent directory does not exist, or a `--port` already in use); `main()` turns that
+    into the documented stderr/exit-code contract rather than letting it propagate. Any such
+    failure that happens after the `VectorStore` is constructed closes that store before
+    re-raising, so a partially-built server never leaks the store's open SQLite connection/file
+    handle.
     """
     store = VectorStore(args.db, args.dimension)
     try:
@@ -130,14 +143,20 @@ def build_server(args: argparse.Namespace) -> tuple[ThreadingHTTPServer, VectorS
             embedder = KeywordEmbedder(args.dimension)
         else:
             embedder = OllamaEmbedClient(args.ollama_url, args.ollama_model)
+        ledger: CompactLedger | None = None
+        if args.ledger is not None:
+            ledger = load_compact_ledger(Path(args.ledger))
         resolve_doc_url = _resolve_doc_url_factory(store)
         routes: dict[str, JSONRoute] = {
-            "/healthz": make_healthz_route(store),
+            "/healthz": make_healthz_route(store, ledger),
             "/search": make_search_route(store, embedder, resolve_doc_url),
         }
-        prefix_routes: dict[str, PrefixJSONRoute] | None = None
+        # `/did/` is always mounted (like the Worker's `makeWorker(index, ledger = null)`): a
+        # well-formed DID answers `ledger_not_built` when `ledger is None`, exactly as documented,
+        # rather than a bare 404 not_found.
+        prefix_routes: dict[str, PrefixJSONRoute] = {"/did/": make_did_prefix_route(ledger)}
         if args.root is not None:
-            prefix_routes = {"/doc/": make_doc_route(args.root)}
+            prefix_routes["/doc/"] = make_doc_route(args.root)
         server = create_server(args.host, args.port, routes=routes, prefix_routes=prefix_routes)
     except Exception:
         store.close()

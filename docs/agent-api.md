@@ -93,10 +93,10 @@ that does not match never reaches the network and answers `isError: true` with
 `{"error": "invalid_did"}` synthesized directly, the same shape a live `/did/{did}` route answers
 for a malformed did (see [docs/api.md](./api.md#get-diddid)'s `GET /did/{did}` contract, which
 `--base-url` may point at). This tool performs no signature or cryptographic verification of its
-own — it only relays whatever `/did/{did}` on the configured `--base-url` currently says,
-including that route's own `ledger_not_built` placeholder answer until the reputation ledger
-(package B2) is published. A request never follows a redirect and its response body is bounded at
-1 MB.
+own — it only relays whatever `/did/{did}` on the configured `--base-url` currently says: a full
+`200` body once that server was started with `--ledger PATH` (package B2), or that route's own
+`ledger_not_built` placeholder when it was not. A request never follows a redirect and its
+response body is bounded at 1 MB.
 
 ### Example `tools/call` (`did_lookup`)
 
@@ -106,8 +106,8 @@ Request line sent on stdin:
 {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "did_lookup", "arguments": {"did": "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf"}}}
 ```
 
-Response line on stdout, once `--base-url` points at a server whose `/did/{did}` answers the
-documented `ledger_not_built` placeholder:
+Response line on stdout, when `--base-url` points at a server started WITHOUT `--ledger` (so
+`/did/{did}` answers the documented `ledger_not_built` placeholder):
 
 ```json
 {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "{\"error\":\"ledger_not_built\"}"}], "structuredContent": {"error": "ledger_not_built"}, "isError": true}}

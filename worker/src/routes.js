@@ -1,14 +1,17 @@
 // The GET-only JSON routes (`/`, `/healthz`, `/search`, `/did/{did}`, `/route`, `/index/*`
 // redirects, 404/405/414) plus the shared rate-limiter check `worker/src/index.js` reuses for
 // `/mcp`. Deliberately imports nothing beyond `./search.js` and web standards (`Request`,
-// `Response`, `URL`) -- no `agents`, no `@modelcontextprotocol/server`, no `zod` -- so
+// `Response`, `URL`) -- no `agents`, no `@modelcontextprotocol/server`, no `zod`, and (package B2)
+// no static `import ... from "../index/did-ledger-compact.json"` either -- so
 // `worker/test/router.test.mjs` can exercise the whole JSON surface with plain Windows Node and
-// no installed dependencies. See `handoff/C1-DESIGN.md` §1 for the route table this implements.
+// no installed dependencies, and with no build-time dependency on that gitignored file existing
+// on disk. See `handoff/C1-DESIGN.md` §1 for the route table this implements.
 //
-// Pure over its inputs: every exported function takes `index`/`env`/`request` explicitly and
-// touches no module-level mutable state. NOT guaranteed: this module does not itself rate-limit
-// `/mcp` (the MCP transport lives in `index.js`, which calls {@link checkRateLimit} the same way
-// this module does for its own routes) and does not know anything about MCP tool schemas.
+// Pure over its inputs: every exported function takes `index`/`ledger`/`env`/`request` explicitly
+// and touches no module-level mutable state. NOT guaranteed: this module does not itself
+// rate-limit `/mcp` (the MCP transport lives in `index.js`, which calls {@link checkRateLimit} the
+// same way this module does for its own routes) and does not know anything about MCP tool
+// schemas.
 
 import { codePointLength, search } from "./search.js";
 
@@ -168,17 +171,32 @@ function countsByKind(index) {
 }
 
 /**
+ * `{dids, bursts, generated_at}` for `ledger`, or `null` when no compact ledger was loaded --
+ * the same shape `openagentsearch.api.healthz._ledger_summary` produces, reused by both `GET /`
+ * and `GET /healthz` (package B2).
+ *
+ * @param {object | null} ledger a parsed `did-ledger-compact.json` document, or `null`
+ * @returns {{dids: number, bursts: number, generated_at: string} | null}
+ */
+function ledgerSummary(ledger) {
+  if (ledger == null) return null;
+  return { dids: ledger.dids, bursts: ledger.bursts, generated_at: ledger.generated_at };
+}
+
+/**
  * The `GET /` service-card body: `handoff/C1-DESIGN.md` §1's "index `generated_at`, `db_sha256`,
- * counts by kind, route + tool list, links to `docs/api.md` and the static files".
+ * counts by kind, route + tool list, links to `docs/api.md` and the static files", plus (package
+ * B2) the reputation ledger's own counts.
  *
  * NOT guaranteed: `routes`/`tools` are a fixed, hand-maintained list, not introspected from the
  * actual router or MCP server -- a route or tool added elsewhere without updating these constants
  * would not appear here.
  *
  * @param {object} index
+ * @param {object | null} [ledger] a parsed `did-ledger-compact.json` document, or `null`/omitted
  * @returns {object}
  */
-export function serviceCard(index) {
+export function serviceCard(index, ledger = null) {
   return {
     service: "openagentsearch",
     generated_at: index.generated_at,
@@ -188,13 +206,14 @@ export function serviceCard(index) {
     tools: TOOL_LIST,
     docs: "https://github.com/djd39448/openagentsearch/blob/main/docs/api.md",
     static_index: `${STATIC_INDEX_BASE}/`,
+    ledger: ledgerSummary(ledger),
   };
 }
 
 /**
  * The `GET /healthz` body: `handoff/C1-DESIGN.md` §1's health shape, as far as a Worker holding
  * only the precomputed lexical index (never the full manifest `pipeline.publish` builds
- * `manifest.json` from) can report it.
+ * `manifest.json` from) can report it, plus (package B2) the reputation ledger's own counts.
  *
  * NOT guaranteed: `index.failed` / `index.superseded` / `index.refused` are always `0` here --
  * this Worker never loads `manifest.json`, so it cannot see any document that isn't already
@@ -202,9 +221,10 @@ export function serviceCard(index) {
  * `docs/api.md`.
  *
  * @param {object} index
+ * @param {object | null} [ledger] a parsed `did-ledger-compact.json` document, or `null`/omitted
  * @returns {object}
  */
-export function healthzBody(index) {
+export function healthzBody(index, ledger = null) {
   return {
     status: "ok",
     index: {
@@ -221,7 +241,68 @@ export function healthzBody(index) {
       terms: index.counts.terms,
       postings: index.counts.postings,
     },
+    ledger: ledgerSummary(ledger),
   };
+}
+
+/**
+ * The full `/did/{did}` answer for `did` (already validated against {@link DID_RE} by the
+ * caller) -- `{status, body}`, the SAME shape whether reached from `GET /did/{did}` or the
+ * `did_lookup` MCP tool (`handoff/B2-SPEC.md` item 2, "one shape everywhere"; the Python A2
+ * server's `openagentsearch.api.did.make_did_prefix_route` mirrors this exactly).
+ *
+ * @param {object | null} ledger a parsed `did-ledger-compact.json` document, or `null`
+ * @param {string} did already validated against {@link DID_RE}
+ * @returns {{status: number, body: object}}
+ */
+export function lookupDid(ledger, did) {
+  if (ledger == null) {
+    return { status: 404, body: { error: "ledger_not_built" } };
+  }
+  const provenance = {
+    ledger_generated_at: ledger.generated_at,
+    log_rows: ledger.log_rows,
+    posts: ledger.posts,
+    dids: ledger.dids,
+    bursts: ledger.bursts,
+    schema: ledger.schema,
+  };
+  const row = ledger.non_burst[did];
+  if (row !== undefined) {
+    return {
+      status: 200,
+      body: {
+        did,
+        burst: false,
+        score: row.score.score,
+        facts_used: row.score.facts_used,
+        facts: row.facts,
+        provenance,
+      },
+    };
+  }
+  const record = ledger.burst[did];
+  if (record !== undefined) {
+    const [burstId, firstSeenTs, postCount, maxPostsPerMinute] = record;
+    return {
+      status: 200,
+      body: {
+        did,
+        burst: true,
+        burst_id: burstId,
+        score: 0.0,
+        facts_used: [
+          ["burst", "true"],
+          ["first_seen_ts", String(firstSeenTs)],
+          ["post_count", String(postCount)],
+          ["max_posts_per_minute", String(maxPostsPerMinute)],
+        ],
+        facts: null,
+        provenance,
+      },
+    };
+  }
+  return { status: 404, body: { error: "unknown_did" } };
 }
 
 /**
@@ -273,6 +354,9 @@ export function parseSearchParams(params, knownKindsSet) {
  * not as a caught 4xx.
  *
  * @param {object} index a parsed `lexical-v1.json` document
+ * @param {object | null} ledger a parsed `did-ledger-compact.json` document, or `null` when the
+ *   Worker was built without one (`/did/{did}` then answers `ledger_not_built` for every
+ *   well-formed DID -- package B2)
  * @param {Request} request
  * @param {unknown} env
  * @param {Set<string>} [knownKindsSet] the valid `kind` values for `index` (see {@link knownKinds});
@@ -280,7 +364,13 @@ export function parseSearchParams(params, knownKindsSet) {
  *   `index` (e.g. {@link makeWorker}) should compute it once and pass it, per the kind rule.
  * @returns {Promise<Response>}
  */
-export async function handleJsonRoute(index, request, env, knownKindsSet = new Set(knownKinds(index))) {
+export async function handleJsonRoute(
+  index,
+  ledger,
+  request,
+  env,
+  knownKindsSet = new Set(knownKinds(index)),
+) {
   const { method } = request;
   const url = new URL(request.url);
   const { pathname } = url;
@@ -313,11 +403,11 @@ export async function handleJsonRoute(index, request, env, knownKindsSet = new S
   }
 
   if (pathname === "/") {
-    return jsonResponse(index, 200, serviceCard(index), { method, cacheSeconds: CARD_CACHE_SECONDS });
+    return jsonResponse(index, 200, serviceCard(index, ledger), { method, cacheSeconds: CARD_CACHE_SECONDS });
   }
 
   if (pathname === "/healthz") {
-    return jsonResponse(index, 200, healthzBody(index), { method, cacheSeconds: CARD_CACHE_SECONDS });
+    return jsonResponse(index, 200, healthzBody(index, ledger), { method, cacheSeconds: CARD_CACHE_SECONDS });
   }
 
   if (pathname === "/search") {
@@ -335,12 +425,23 @@ export async function handleJsonRoute(index, request, env, knownKindsSet = new S
   }
 
   if (isDid) {
-    const did = pathname.slice("/did/".length);
-    if (!DID_RE.test(did)) {
-      return jsonResponse(index, 400, { error: "invalid_did" }, { method });
+    // Percent-decoded like the Python A2 route (`openagentsearch.api.did`), so a client that
+    // encodes the `did:key:` colons reaches the same answer a literal one does; a malformed
+    // escape sequence is simply an invalid DID.
+    let did = pathname.slice("/did/".length);
+    try {
+      did = decodeURIComponent(did);
+    } catch {
+      did = "";
     }
-    // Until package B2 builds the reputation ledger, every well-formed DID answers the same way.
-    return jsonResponse(index, 404, { error: "ledger_not_built" }, { method });
+    // Present on every /did/{did} response, whatever its status, whenever a ledger is loaded --
+    // there is nothing to report it as when `ledger` is `null` (package B2).
+    const didHeaders = ledger == null ? {} : { "x-ledger-generated-at": ledger.generated_at };
+    if (!DID_RE.test(did)) {
+      return jsonResponse(index, 400, { error: "invalid_did" }, { method, extraHeaders: didHeaders });
+    }
+    const { status, body } = lookupDid(ledger, did);
+    return jsonResponse(index, status, body, { method, extraHeaders: didHeaders });
   }
 
   if (pathname === "/route") {
@@ -362,12 +463,16 @@ export async function handleJsonRoute(index, request, env, knownKindsSet = new S
  * or the MCP SDK installed.
  *
  * NOT guaranteed: this worker has no `/mcp` route at all -- a request for it falls through to the
- * generic `404`; `worker/src/index.js`'s own `makeWorker` is what composes the two.
+ * generic `404`; `worker/src/index.js`'s own `makeWorker` is what composes the two. This module
+ * stays data-free (see the module docstring): `ledger` is always the caller's parsed object,
+ * never imported here.
  *
  * @param {object} index a parsed `lexical-v1.json` document
+ * @param {object | null} [ledger] a parsed `did-ledger-compact.json` document, or `null`/omitted
+ *   (`/did/{did}` then answers `ledger_not_built` for every well-formed DID -- package B2)
  * @returns {{fetch: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>, handle: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>}}
  */
-export function makeWorker(index) {
+export function makeWorker(index, ledger = null) {
   // Computed once per loaded `index`, not per request or hard-coded -- see the kind rule at
   // {@link knownKinds}.
   const knownKindsSet = new Set(knownKinds(index));
@@ -377,7 +482,7 @@ export function makeWorker(index) {
    * @returns {Promise<Response>}
    */
   async function handle(request, env) {
-    return handleJsonRoute(index, request, env, knownKindsSet);
+    return handleJsonRoute(index, ledger, request, env, knownKindsSet);
   }
   return { fetch: handle, handle };
 }
