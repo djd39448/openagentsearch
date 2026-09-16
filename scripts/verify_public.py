@@ -28,6 +28,9 @@ from typing import Any
 from urllib.request import OpenerDirector
 
 MAX_BODY_BYTES = 1_000_000
+# Cloudflare's edge answers 403 "error code: 1010" (Browser Integrity Check) to urllib's default
+# `Python-urllib/x.y` User-Agent; any explicit value passes. Every request here sends this one.
+USER_AGENT = "OpenAgentSearch-verify/1.0"
 DEFAULT_TIMEOUT_S = 20.0
 EXPECTED_TOOLS = ("did_lookup", "index_info", "search")
 
@@ -56,7 +59,7 @@ def _opener() -> OpenerDirector:
 
 
 def _http_get_json(url: str, timeout: float) -> dict[str, Any]:
-    request = urllib.request.Request(url, method="GET")
+    request = urllib.request.Request(url, method="GET", headers={"User-Agent": USER_AGENT})
     try:
         with _opener().open(request, timeout=timeout) as response:
             body = response.read(MAX_BODY_BYTES + 1)
@@ -80,6 +83,7 @@ def _http_post_json(url: str, payload: dict[str, Any], timeout: float) -> dict[s
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
+            "User-Agent": USER_AGENT,
         },
     )
     try:

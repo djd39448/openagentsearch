@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, TextIO
 
 PROTOCOL_VERSION_DEFAULT = "minimal-stdio-1"
 SERVER_INFO = {"name": "openagentsearch", "version": "0"}
+USER_AGENT = "openagentsearch-mcp/0"
 SEARCH_TOOL: Dict[str, Any] = {
     "name": "search",
     "description": "Search the local OpenAgentSearch index.",
@@ -60,7 +61,10 @@ class MCPServer:
     def search(self, q: str, k: int = 10) -> Dict[str, Any]:
         """GET <base_url>/search?q=...&k=... and return the parsed body (raises on malformed bodies)."""
         url = f"{self.base_url}/search?{urllib.parse.urlencode({'q': q, 'k': str(k)})}"
-        with urllib.request.urlopen(url, timeout=self.http_timeout) as response:
+        # An explicit User-Agent: Cloudflare's edge (the public Worker) answers 403 "error code:
+        # 1010" to urllib's default `Python-urllib/x.y`; any explicit value passes.
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(request, timeout=self.http_timeout) as response:
             body = json.loads(response.read().decode("utf-8"))
         if (
             not isinstance(body, dict)
