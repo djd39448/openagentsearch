@@ -13,7 +13,9 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - OpenAgentSearch is early-stage open source.
 - Current package version is `0.1.0`.
 - Phases 0-6 of the repository roadmap have been implemented and fixture-tested; future work plainly continues (see [ROADMAP.md](./ROADMAP.md)).
-- There is no production index, hosted service, published release or tag, or user/adoption claim.
+- There is no package publication and no user/adoption claim. The git tag `v0.2.0` marks the
+  repository state it names; the public Worker and the static index are operator-run snapshots
+  that can lag the repository.
   A first public static snapshot of the index exists at https://djd39448.github.io/openagentsearch/ (two GET-only
   files, see [docs/static-index.md](./docs/static-index.md)); it is a snapshot, not a service.
 - Live fetch-to-index wiring exists (`LiveIngester`, one URL at a time behind the allowlist, robots.txt, page budget and rate limiter) and is fixture-tested against a local server only; it is intentionally not presented as a production-ready crawl workflow. A bounded, config-driven link-following loop now exists on top of it (see "What works today" below), but it is still a one-shot bounded run, not a daemon.

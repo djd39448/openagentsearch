@@ -31,9 +31,11 @@ def _flat(text: str) -> str:
 def test_version_sources_and_changelog_agree():
     with open(REPO / "pyproject.toml", "rb") as fh:
         pyproject_version = tomllib.load(fh)["project"]["version"]
-    assert pyproject_version == openagentsearch.__version__ == "0.1.0"
+    assert pyproject_version == openagentsearch.__version__ == "0.2.0"
     changelog = _read("CHANGELOG.md")
+    assert "## 0.2.0 - 2026-09-16" in changelog
     assert "## 0.1.0 - Development baseline" in changelog
+    assert changelog.index("## Unreleased") < changelog.index("## 0.2.0 - ")
     flat = _flat(changelog)
     assert "No git tag or published release is asserted" in flat
     assert "does not imply that a git tag, package publication, or hosted release exists" in flat

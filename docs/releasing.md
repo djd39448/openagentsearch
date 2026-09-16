@@ -9,6 +9,10 @@ The version currently appears in two locations:
 
 - `pyproject.toml`, `[project].version`
 - `src/openagentsearch/__init__.py`, `__version__`
+- `worker/package.json`, `version` (the MCP server's advertised version)
+
+Two tests pin the value as well and must move with it: `tests/test_smoke.py::test_version` and
+`tests/test_project_docs.py::test_version_sources_and_changelog_agree`.
 
 Neither location is a single source of truth; both are hand-maintained.
 

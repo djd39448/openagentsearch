@@ -5,6 +5,15 @@ package publication, or hosted release exists.
 
 ## Unreleased
 
+No unreleased changes recorded yet.
+
+## 0.2.0 - 2026-09-16
+
+0.2.0 is the current repository/package version, tagged `v0.2.0` in git by the owner's
+authorization. No package publication or hosted release exists; the public Worker at
+https://openagentsearch.trustcoresystems.workers.dev is operator-run from this code and can lag
+it. Everything below was added, changed or fixed between 0.1.0 and this tag.
+
 ### Added
 
 - `openagentsearch.pipeline.ingest.LiveIngester`: live ingestion of one URL at a time behind the
@@ -291,7 +300,7 @@ package publication, or hosted release exists.
 
 ## 0.1.0 - Development baseline
 
-0.1.0 is the current repository/package version. No git tag or published release is asserted by
+0.1.0 was the development baseline. No git tag or published release is asserted by
 this changelog.
 
 Implemented capabilities, by roadmap phase:
