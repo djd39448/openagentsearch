@@ -428,3 +428,16 @@ in the line), `2` on a bad argument. `--ledger` additionally checks `/healthz`'s
 [`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §5 and §7 for the full refresh procedure and the
 one-time setup an operator (not this repository) must do before any of this can run against a real
 deploy.
+
+**Daily refresh (operator tooling, outside this repository).** Since 2026-09-17 the live service is
+refreshed once a day by a Windows scheduled task, "OAS Index Refresh" (04:30 local), whose wrapper
+runs the chain above end to end — `pipeline.crawl --resume` (embedding on the operator's local
+Ollama), `pipeline.publish`, `reputation.build`, the GitHub Pages commit and push, the Worker deploy,
+then `scripts/verify_public.py` — with every step gated on the previous one's exit code, a
+no-shrink sanity check (the new index and ledger may not lose more than 10 % of what is published)
+before anything is pushed, a `wrangler deploy --dry-run` before the real deploy, and a logged failure
+when the post-deploy verification does not match the build. If the embedding host is unreachable the
+day is skipped and logged, and the previously published index and ledger stay live; nothing in this
+repository depends on the task, and no test runs it. `generated_at` in every response is the
+authoritative freshness signal — expect it to move once a day, and read a stale value as "the last
+refresh did not complete", not as "the service is down".
