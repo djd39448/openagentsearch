@@ -80,7 +80,7 @@ test("GET / returns the service card with the full header set", async () => {
   assert.equal(body.db_sha256, INDEX.db_sha256);
   assert.ok(Array.isArray(body.routes));
   assert.ok(body.routes.includes("POST /mcp"));
-  assert.deepEqual(body.tools, ["search", "did_lookup", "index_info"]);
+  assert.deepEqual(body.tools, ["search", "did_lookup", "index_info", "route"]);
   assert.equal(body.ledger, null); // no ledger passed to makeWorker (package B2)
 });
 
@@ -418,13 +418,16 @@ test("HEAD /did/{did} carries the same status and headers with no body", async (
   assert.equal(await res.text(), "");
 });
 
-// --- GET /route (reserved) ----------------------------------------------------------------
+// --- GET /route (package D2) -- see worker/test/route.test.mjs for the full contract -------
 
-test("GET /route is 404 not_found (reserved for D2)", async () => {
+test("GET /route without an offerShape loaded is 500 offer_shape_missing", async () => {
+  // makeWorker(INDEX) here deliberately omits the third (offerShape) argument -- a deploy built
+  // without worker/src/offer-shape.json must not silently answer a wrong shape.
   const worker = makeWorker(INDEX);
-  const res = await worker.fetch(req("/route"), ALWAYS_ALLOW);
-  assert.equal(res.status, 404);
-  assert.deepEqual(await res.json(), { error: "not_found" });
+  const res = await worker.fetch(req("/route?model_hash=m1"), ALWAYS_ALLOW);
+  assert.equal(res.status, 500);
+  assertCommonHeaders(res);
+  assert.deepEqual(await res.json(), { error: "offer_shape_missing" });
 });
 
 // --- GET /index/* redirects ----------------------------------------------------------------

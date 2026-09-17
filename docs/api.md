@@ -19,13 +19,14 @@ only thing that changes.
 Every response carries: `Content-Type: application/json; charset=utf-8`,
 `Access-Control-Allow-Origin: *`, `X-Content-Type-Options: nosniff`, `X-Index-Generated-At` and
 `X-Index-Db-Sha256` (both copied from the bundled index, so staleness is always visible), and
-`Cache-Control: public, max-age=60` on `/search`, `public, max-age=300` everywhere else — including
-error responses. `HEAD` is accepted everywhere `GET` is, with the same status and headers and no
-body. Every route except `/` and `/healthz` (this includes `/mcp`) is rate-limited: **60 requests
-per 60 seconds per client IP per Cloudflare location** (the Workers Rate Limiting binding is
-"permissive, eventually consistent" — see [`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §1).
-Any path over 256 characters is refused before routing. Every `/did/{did}` response also carries
-`X-Ledger-Generated-At` whenever a reputation ledger is loaded (see that route below).
+`Cache-Control: public, max-age=60` on `/search` and `/route`, `public, max-age=300` everywhere
+else — including error responses. `HEAD` is accepted everywhere `GET` is, with the same status
+and headers and no body. Every route except `/` and `/healthz` (this includes `/mcp`) is
+rate-limited: **60 requests per 60 seconds per client IP per Cloudflare location** (the Workers
+Rate Limiting binding is "permissive, eventually consistent" — see
+[`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §1). Any path over 256 characters is refused
+before routing. Every `/did/{did}` response, and every `/route` response, also carries
+`X-Ledger-Generated-At` whenever a reputation ledger is loaded (see those routes below).
 
 ### `GET /`
 
@@ -43,7 +44,7 @@ curl https://openagentsearch.trustcoresystems.workers.dev/
   "db_sha256": "<sha256 of the source database>",
   "counts": {"github_doc": 1200, "github_issue": 400, "html": 18, "room": 2000, "site": 376},
   "routes": ["GET /", "GET /healthz", "GET /search", "GET /did/{did}", "GET /route", "GET /index/manifest.json", "GET /index/flop-surface.jsonl", "GET /index/lexical-v1.json", "POST /mcp"],
-  "tools": ["search", "did_lookup", "index_info"],
+  "tools": ["search", "did_lookup", "index_info", "route"],
   "docs": "https://github.com/djd39448/openagentsearch/blob/main/docs/api.md",
   "static_index": "https://djd39448.github.io/openagentsearch/",
   "ledger": {"dids": 53856, "bursts": 12, "generated_at": "2026-09-16T05:20:00Z"}
@@ -201,9 +202,114 @@ curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:z6MkfVWRHN
 {"error": "ledger_not_built"}
 ```
 
-### `GET /route`
+### `GET /route?model_hash=&precision=&max_latency_ms=&k=`
 
-Reserved for package D2 (routing signals). Answers `404 {"error": "not_found"}` for now.
+Routing signals, **observations-only** (package D2) — designed so a router like
+`retardio73-boop/flop-session-router` can consume this service's `/search` and `/did/{did}` as an
+observation source rather than compete with it. There is no public FLOP `SessionOffer` shape yet
+(`openagentsearch.flop.offer` — see `offer_shape` below), so there is nothing this route can
+honestly call a "candidate" and nothing it can rank: `candidates` is always `[]` and `ranking` is
+always `null`, each with a reason. What this route *does* return is `observations` — this
+service's own existing search over the queried tokens, with reputation facts attached to any
+`did:key:` identity mentioned in a hit's text.
+
+```
+curl 'https://openagentsearch.trustcoresystems.workers.dev/route?model_hash=llama3-70b-instruct-q4&precision=fp16&max_latency_ms=1500&k=5'
+```
+
+```json
+{
+  "query": {"model_hash": "llama3-70b-instruct-q4", "precision": "fp16", "max_latency_ms": 1500, "k": 5},
+  "advisory": true,
+  "offer_shape": {
+    "published": false,
+    "source": "flop-labs/flop-core@41d0009 (private) — sv, flop-labs/yellowpaper#26, 2026-09-14",
+    "watch": ["flop-labs/yellowpaper issue #26", "flop-labs/flop-core (when public)", "Appendix F of a yellow paper version after v0.5.0"],
+    "binds": ["miner", "chain_genesis", "model_hash", "precision", "enclave_key", "minimum_escrow", "sla_bounds", "advisory_capacity_hint", "expiry", "nonce", "signature", "forward_terms"]
+  },
+  "candidates": [],
+  "candidates_reason": "no SessionOffer shape is public; nothing in this response is an offer",
+  "ranking": null,
+  "ranking_reason": "no published quote unit; cross-provider ranking is fail-closed (flop-labs/yellowpaper#26)",
+  "observations": [
+    {
+      "url": "<source URL of the hit>",
+      "kind": "room",
+      "score": 6.079656,
+      "text": "<the hit's abstract (Worker) or 200-character snippet (A2 server)>",
+      "dids": [
+        {"did": "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf", "ledger": {"did": "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf", "burst": false, "score": 41.850018, "facts_used": [["age_days", "62.5"]], "facts": {"...": "...every DidFacts field, see docs/reputation.md..."}, "provenance": {"ledger_generated_at": "2026-09-16T05:20:00Z", "log_rows": 269000, "posts": 268400, "dids": 53856, "bursts": 12, "schema": "openagentsearch.did-ledger-compact/1"}}}
+      ]
+    }
+  ],
+  "observations_query": "llama3-70b-instruct-q4 fp16",
+  "index_generated_at": "2026-09-15T18:00:00Z",
+  "ledger_generated_at": "2026-09-16T05:20:00Z"
+}
+```
+
+**Parameters.** `model_hash` (required, 1-128 characters, `[A-Za-z0-9:_./-]`, checked exactly —
+no whitespace stripping); `precision` (optional, 1-32 characters, the SAME alphabet as
+`model_hash` — **not validated against any fixed vocabulary**, because the FLOP field vocabulary
+this would eventually bind is itself unpublished, see `offer_shape` below); `max_latency_ms`
+(optional, ASCII digits only, `1..600000` — **accepted and echoed back in `query`, never used**:
+no latency facts exist anywhere in this repository); `k` (optional, default `10`, `1..50`, the
+same rule `GET /search` uses). Repeated parameters: the first value wins, like `/search`.
+Validated in that order — `model_hash`, then `precision`, then `max_latency_ms`, then `k` — each
+answering `400 {"error": "<code>", "field": "<the parameter that failed>"}` for the FIRST problem
+found.
+
+**`offer_shape`** is `openagentsearch.flop.offer.offer_shape_status()` (package D1) copied field
+for field — `published` is `false` today, `source` names where the real `SessionOffer` shape
+lives (private, as of this writing), `watch` lists where to look for it to be published, and
+`binds` is vocabulary taken from a maintainer's prose comment, **not a schema**. The Worker's copy
+of this object is a generated, committed file, `worker/src/offer-shape.json`
+(`scripts/make_offer_shape_json.py`), so the Worker and the A2 server answer byte-identical
+`offer_shape` bodies without either one importing the other's code.
+
+**`candidates` is always `[]` and `ranking` is always `null`** while `offer_shape.published` is
+`false` — this is an invariant of this route today, not a fixture accident. The day a
+`SessionOffer` shape is published and a real parser exists, `candidates` (and only `candidates`)
+changes; `observations` and everything else keep meaning exactly what they mean today.
+
+**`observations`** are this service's OWN existing search — the Worker's BM25 lexical search
+(`worker/src/search.js`, the same ranking `GET /search` uses) or the A2 server's vector search
+(the same `cosine_search` `GET /search` uses) — run once, for the query string `model_hash` alone,
+or `model_hash + " " + precision` when `precision` is given (see `observations_query`), with `k`
+results, no `kind` filter. Each hit is `{url, kind, score, text}`: `text` is the Worker doc's
+`abstract` or the A2 chunk's 200-character snippet (the exact same text `GET /search` would show
+for that hit); `kind` is the Worker doc's `kind`, always `null` on the A2 server (a vector chunk
+carries no `kind`). **These are NOT candidates and NOT ranked against each other in any
+FLOP-aware sense** — `score` is plain BM25 or cosine relevance to the query tokens, nothing more.
+
+**`dids`** are every `did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}` token found in a hit's `text`, in
+order of first appearance, de-duplicated, at most 5 per hit — **mentions, not authorship**: a DID
+appearing in a document's abstract says nothing about who wrote it. Each is looked up in the
+loaded compact reputation ledger with the exact SAME function `GET /did/{did}` itself uses
+(`lookupDid` on the Worker, `CompactLedger.lookup` on the A2 server), so a `dids[].ledger` body is
+byte-identical to what `GET /did/{did}` would answer for that same DID: the full `200` body for a
+known DID, `{"error": "unknown_did"}` for a well-formed DID absent from the ledger, or
+`{"error": "ledger_not_built"}` for every DID mention when no ledger is loaded at all. As
+everywhere else in this service, a ledger body is evidence from one message log, never an
+endorsement — see "Honest caveats" below.
+
+**A deploy missing `worker/src/offer-shape.json`** (the Worker was built without it) answers
+`500 {"error": "offer_shape_missing"}` for every request — a broken deploy must never answer a
+wrong or fabricated `offer_shape`, so this fails closed instead of guessing.
+
+Every `/route` response, whatever its status — including a `400` or the `500` above — carries
+`X-Ledger-Generated-At` whenever a reputation ledger is loaded, the same convention
+`GET /did/{did}` uses ("present even for a 400: a ledger IS loaded, so there is something to
+report"). Rate-limited exactly like `/search` (not exempt); `HEAD` and `POST` behave like
+`/search`'s.
+
+### MCP tool `route`
+
+The `route` MCP tool (see "Tools" below) answers the exact same body as `GET /route`, with the
+same bounded-string/integer input schema; it answers `isError: true` for `invalid_model_hash`,
+`invalid_precision`, and `offer_shape_missing` (a `200`-shaped observations-only body, even with
+zero observations, is `isError: false` — the same convention `did_lookup`'s successful lookups
+use).
 
 ### `GET /index/manifest.json`, `/index/flop-surface.jsonl`, `/index/lexical-v1.json`
 
@@ -221,19 +327,29 @@ itself.
 | 400 | `invalid_k` | `/search` | `k` is not an integer `1..50` written in ASCII digits |
 | 400 | `invalid_kind` | `/search` | `kind` is present but not one of the kinds actually present in the loaded index (body includes `known`, the current set) |
 | 400 | `invalid_did` | `/did/{did}` | `did` does not match the `did:key` pattern |
+| 400 | `missing_model_hash` | `/route` | `model_hash` is missing |
+| 400 | `invalid_model_hash` | `/route` | `model_hash` is present but not 1-128 characters of `[A-Za-z0-9:_./-]` |
+| 400 | `invalid_precision` | `/route` | `precision` is present but not 1-32 characters of the same alphabet as `model_hash` |
+| 400 | `invalid_max_latency_ms` | `/route` | `max_latency_ms` is present but not an integer `1..600000` written in ASCII digits |
 | 404 | `unknown_did` | `/did/{did}` | `did` is well-formed and a ledger is loaded, but that DID never posted a signed message in a logged room |
 | 404 | `ledger_not_built` | `/did/{did}` | `did` is well-formed, but NO ledger is loaded at all (no compact artifact bundled, or the A2 server started without `--ledger`) |
-| 404 | `not_found` | any unmatched path, `/route` | no route matches |
+| 404 | `not_found` | any unmatched path | no route matches |
 | 405 | `method_not_allowed` | any JSON route | method is not `GET`/`HEAD` (`Allow: GET, HEAD`) |
 | 414 | `path_too_long` | any route | request path over 256 characters |
 | 429 | `rate_limited` | every route except `/`, `/healthz` | over 60 requests/60s for this key (`Retry-After: 60`) |
+| 500 | `offer_shape_missing` | `/route` | the Worker was built without `worker/src/offer-shape.json` |
 | 503 | `rate_limiter_unavailable` | every route except `/`, `/healthz` | the rate-limiter binding is missing or threw (fails closed) |
+
+`/route` also answers `400 invalid_k` under the same rule `/search` uses (see above).
 
 ## Limits
 
 - `q` ≤ 512 characters; at most 32 distinct query terms are scored (`queryTerms`'s cut, silent —
   extra terms are simply never looked up, not an error).
 - `k` ≤ 50.
+- `/route`: `model_hash` ≤ 128 characters, `precision` ≤ 32 characters, `max_latency_ms` ≤
+  600000 (accepted and echoed, never used), `k` ≤ 50, at most 5 `did:key:` mentions extracted per
+  observation.
 - 60 requests per 60 seconds per client IP per Cloudflare location (rate limiter binding).
 - Workers Free plan: 100,000 requests/day, 10 ms CPU per invocation, 128 MB memory — see
   [`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §2. A deploy that exceeds the daily cap answers
@@ -283,6 +399,29 @@ including a burst member's, is `isError: false`). An empty `did` (outside the sc
 `minLength`) is the one case still rejected by the SDK's own validation error.
 
 **`index_info`** — no input. Returns the same body as `GET /healthz`.
+
+**`route`** — routing signals, observations-only (package D2); the same body as `GET /route`.
+
+```json
+{
+  "model_hash": {"type": "string", "minLength": 1, "maxLength": 128},
+  "precision": {"type": "string", "minLength": 1, "maxLength": 32},
+  "max_latency_ms": {"type": "integer", "minimum": 1, "maximum": 600000},
+  "k": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10}
+}
+```
+
+`model_hash` (required) and `precision` (optional) are **not** validated against the
+`[A-Za-z0-9:_./-]` charset in the schema itself — like `kind` and `did` above, that check happens
+inside the handler instead, so a value that fails it reaches the same app-level
+`{"error": "invalid_model_hash", "field": "model_hash"}` / `{"error": "invalid_precision",
+"field": "precision"}` bodies `GET /route` answers, rather than colliding with the SDK's own
+schema-validation error; a value outside the schema's own length bounds IS the SDK's own
+validation error. Returns
+`content: [{"type": "text", "text": "<compact JSON, the same body as GET /route>"}]`, `isError`
+set only for `invalid_model_hash`, `invalid_precision`, and `offer_shape_missing` — a successful
+observations-only body (`candidates: []`, `ranking: null`, even with zero `observations`) is
+`isError: false`.
 
 ### Example `tools/call`
 
@@ -365,6 +504,10 @@ when it is not. See [docs/agent-api.md](./agent-api.md) for its exact contract:
 
 - **Lexical, not semantic.** Ranking is BM25 keyword overlap; there is no embedding model behind
   `/search` or the `search` tool, and no notion of synonymy or paraphrase.
+- **`/route` returns observations, not offers.** `candidates` is always `[]` and `ranking` is
+  always `null` — there is no public FLOP `SessionOffer` shape to parse (package D1) and no
+  published quote unit to rank across providers (`flop-labs/yellowpaper#26`). `observations` are
+  plain search hits with reputation facts attached by DID mention, never a routing decision.
 - **Forward-only data.** Every document in the index is whatever `pipeline.publish` last exported;
   nothing here is a live crawl or a live feed. `generated_at` (on `/`, `/healthz`, and every
   response's `X-Index-Generated-At` header) says exactly how stale a given deploy is.

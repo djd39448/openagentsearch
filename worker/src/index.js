@@ -1,8 +1,8 @@
 // OpenAgentSearch public endpoint: GET-only JSON routes (`./routes.js`) plus a remote MCP server
 // at `/mcp` (Streamable HTTP, stateless -- no Durable Object, no session state) exposing `search`,
-// `did_lookup` and `index_info` as tools, built on `agents/mcp/server`'s `createMcpHandler` and
-// the MCP SDK v2 `McpServer`. See `handoff/C1-DESIGN.md` §1 for the full route/tool table and
-// `handoff/C2b-SPEC.md` for this package's deliverable.
+// `did_lookup`, `index_info` and (package D2) `route` as tools, built on `agents/mcp/server`'s
+// `createMcpHandler` and the MCP SDK v2 `McpServer`. See `handoff/C1-DESIGN.md` §1 for the full
+// route/tool table and `handoff/C2b-SPEC.md` for the original package's deliverable.
 //
 // This is the ONLY module in `worker/src/` that imports `agents` or `@modelcontextprotocol/*` --
 // `./routes.js` and `./search.js` stay dependency-free so `worker/test/` runs under plain Node
@@ -20,9 +20,13 @@ import { z } from "zod";
 import INDEX from "../index/lexical-v1.json" with { type: "json" };
 import LEDGER from "../index/did-ledger-compact.json" with { type: "json" };
 import PACKAGE from "../package.json" with { type: "json" };
+import OFFER_SHAPE from "./offer-shape.json" with { type: "json" };
 import { search } from "./search.js";
 import {
   DID_RE,
+  MODEL_HASH_RE,
+  PRECISION_RE,
+  buildRouteBody,
   checkRateLimit,
   handleJsonRoute,
   healthzBody,
@@ -34,9 +38,9 @@ const SERVICE_NAME = "openagentsearch";
 
 /**
  * Builds one stateless MCP server over `index`: pure tool handlers with no per-request globals,
- * matching `handoff/C2b-SPEC.md` §3's three tools exactly. A fresh server is built per request by
- * `createMcpHandler` (never reused across requests), so nothing here may hold state between
- * calls.
+ * matching `handoff/C2b-SPEC.md` §3's three tools (`search`, `did_lookup`, `index_info`) plus
+ * (package D2) `route`. A fresh server is built per request by `createMcpHandler` (never reused
+ * across requests), so nothing here may hold state between calls.
  *
  * NOT guaranteed: this does not itself apply the rate limiter or the `Host`/`Origin` checks --
  * those happen around it, in `makeWorker` (this module) and inside `createMcpHandler` itself.
@@ -44,9 +48,12 @@ const SERVICE_NAME = "openagentsearch";
  * @param {object} index a parsed `lexical-v1.json` document
  * @param {object | null} [ledger] a parsed `did-ledger-compact.json` document, or `null`/omitted
  *   (package B2)
+ * @param {object | null} [offerShape] a parsed `offer-shape.json` document, or `null`/omitted --
+ *   the `route` tool then answers `isError: true` with `{"error": "offer_shape_missing"}` for
+ *   every call (package D2)
  * @returns {McpServer}
  */
-export function createServer(index, ledger = null) {
+export function createServer(index, ledger = null, offerShape = null) {
   const server = new McpServer({ name: SERVICE_NAME, version: PACKAGE.version });
   // Computed from `index`, not hard-coded -- see the kind rule at `./routes.js`'s `knownKinds`.
   // `kind` itself stays a plain bounded string in the schema (not `z.enum`) so an unknown value
@@ -130,6 +137,64 @@ export function createServer(index, ledger = null) {
     }),
   );
 
+  server.registerTool(
+    "route",
+    {
+      description:
+        "Routing signals, observations-only (package D2) -- the same body as GET /route. " +
+        "candidates is always [] and ranking is always null (no SessionOffer shape is public " +
+        "yet, and cross-provider ranking stays fail-closed -- flop-labs/yellowpaper#26); " +
+        "observations are the search index's own hits for the queried tokens, joined to the " +
+        "reputation ledger by any did:key: mentions in each hit's text.",
+      inputSchema: z.object({
+        model_hash: z.string().min(1).max(128),
+        precision: z.string().min(1).max(32).optional(),
+        max_latency_ms: z.number().int().min(1).max(600000).optional(),
+        k: z.number().int().min(1).max(50).default(10),
+      }),
+    },
+    async ({ model_hash: modelHash, precision, max_latency_ms: maxLatencyMs, k }) => {
+      // Same manual charset check `handleJsonRoute`/`parseRouteParams` (./routes.js) make before
+      // ever calling `buildRouteBody` -- the zod schema above only bounds length/type, not the
+      // `[A-Za-z0-9:_./-]` alphabet, for the same reason `did_lookup`'s `did` and `search`'s
+      // `kind` stay plain bounded strings in their own schemas (see those tools' own comments):
+      // so a value that fails the app-level check reaches the documented app-level error body
+      // instead of colliding with the SDK's own free-text schema-validation error.
+      // Fail closed FIRST, before any input check -- the same order `GET /route` uses, so a
+      // broken deploy answers `offer_shape_missing` to every call, valid or not.
+      if (offerShape == null) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: "offer_shape_missing" }) }],
+          isError: true,
+        };
+      }
+      if (!MODEL_HASH_RE.test(modelHash)) {
+        return {
+          content: [
+            { type: "text", text: JSON.stringify({ error: "invalid_model_hash", field: "model_hash" }) },
+          ],
+          isError: true,
+        };
+      }
+      if (precision !== undefined && !PRECISION_RE.test(precision)) {
+        return {
+          content: [
+            { type: "text", text: JSON.stringify({ error: "invalid_precision", field: "precision" }) },
+          ],
+          isError: true,
+        };
+      }
+      const params = {
+        model_hash: modelHash,
+        precision: precision ?? null,
+        max_latency_ms: maxLatencyMs ?? null,
+        k,
+      };
+      const body = buildRouteBody(index, ledger, offerShape, params);
+      return { content: [{ type: "text", text: JSON.stringify(body) }] };
+    },
+  );
+
   return server;
 }
 
@@ -145,10 +210,14 @@ export function createServer(index, ledger = null) {
  * @param {object | null} [ledger] a parsed `did-ledger-compact.json` document, or `null`/omitted
  *   (`/did/{did}` and the `did_lookup` tool then answer `ledger_not_built` for every well-formed
  *   DID -- package B2)
+ * @param {object | null} [offerShape] a parsed `offer-shape.json` document, or `null`/omitted
+ *   (`GET /route` and the `route` tool then answer `offer_shape_missing` -- package D2)
  * @returns {{fetch: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>, handle: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>}}
  */
-export function makeWorker(index, ledger = null) {
-  const mcpHandler = createMcpHandler(() => createServer(index, ledger), { route: "/mcp" });
+export function makeWorker(index, ledger = null, offerShape = null) {
+  const mcpHandler = createMcpHandler(() => createServer(index, ledger, offerShape), {
+    route: "/mcp",
+  });
   // Computed once per loaded `index`, not per request or hard-coded -- see the kind rule at
   // `./routes.js`'s `knownKinds`. (`createServer` above computes its own copy per MCP request,
   // since `createMcpHandler` builds a fresh server per request; this one backs only the JSON
@@ -168,13 +237,13 @@ export function makeWorker(index, ledger = null) {
       if (limited) return limited;
       return mcpHandler(request, env, ctx);
     }
-    return handleJsonRoute(index, ledger, request, env, knownKindsSet);
+    return handleJsonRoute(index, ledger, request, env, knownKindsSet, offerShape);
   }
 
   return { fetch: handle, handle };
 }
 
-const worker = makeWorker(INDEX, LEDGER);
+const worker = makeWorker(INDEX, LEDGER, OFFER_SHAPE);
 
 /** The default-index-bound handler, exported standalone for callers that want it directly. */
 export const handle = worker.handle;

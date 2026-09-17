@@ -59,6 +59,31 @@ package publication, or hosted release exists.
   from a comment, not a schema; replaced, not extended, once the shape is public). Pure, stdlib
   only, no network. This fixes the seam so a future D2 `/route` can state why it does not parse
   offers. See [docs/flop-wire.md](./docs/flop-wire.md).
+- `GET /route?model_hash=&precision=&max_latency_ms=&k=` (package D2): routing signals,
+  observations-only, on the A2 server (`openagentsearch.api.route.make_route_route`, wired in
+  `openagentsearch.api.cli`) and the Cloudflare Worker (`worker/src/routes.js`'s `/route` branch
+  plus a `route` MCP tool in `worker/src/index.js`) -- identical contract on both surfaces.
+  Because no `SessionOffer` shape is public (package D1) and no published quote unit exists to
+  rank across providers (`flop-labs/yellowpaper#26`), `candidates` is always `[]`
+  (`candidates_reason`) and `ranking` is always `null` (`ranking_reason`) -- an invariant, not a
+  fixture accident. `observations` are this service's own existing search (Worker BM25 / A2
+  cosine, the SAME ranking `GET /search` uses) over `model_hash` (+ `" " + precision` when
+  given), each hit `{url, kind, score, text}` joined to the reputation ledger by every `did:key:`
+  token `extract_dids`/`extractDids` finds in the hit's text (at most 5, first-appearance order,
+  de-duplicated) through the SAME lookup function `GET /did/{did}` itself uses, so
+  `dids[].ledger` is byte-identical to that route's own body. `offer_shape` is
+  `openagentsearch.flop.offer.offer_shape_status()` copied field for field; the Worker's copy is
+  a generated, committed file (`worker/src/offer-shape.json`,
+  `scripts/make_offer_shape_json.py`, the same generate-and-diff-check convention
+  `scripts/make_casefold_table.py` uses) so both surfaces answer byte-identical bytes without
+  either importing the other's code -- a Worker deployed without that file answers `500
+  {"error": "offer_shape_missing"}` for every `/route` request rather than a wrong or fabricated
+  shape. Validation (`model_hash` required 1-128 chars of `[A-Za-z0-9:_./-]`, `precision`
+  optional 1-32 chars of the same alphabet and not checked against any vocabulary,
+  `max_latency_ms` optional `1..600000` accepted and echoed but never used to filter anything,
+  `k` optional `1..50` default `10` reusing `/search`'s rule) answers `400 {"error": "<code>",
+  "field": "<param>"}` for the first problem found, in that order. Rate-limited and
+  `HEAD`/`POST`-handled exactly like `/search`. See [docs/api.md](./docs/api.md).
 
 ## 0.2.0 - 2026-09-16
 

@@ -2,16 +2,17 @@
 // redirects, 404/405/414) plus the shared rate-limiter check `worker/src/index.js` reuses for
 // `/mcp`. Deliberately imports nothing beyond `./search.js` and web standards (`Request`,
 // `Response`, `URL`) -- no `agents`, no `@modelcontextprotocol/server`, no `zod`, and (package B2)
-// no static `import ... from "../index/did-ledger-compact.json"` either -- so
-// `worker/test/router.test.mjs` can exercise the whole JSON surface with plain Windows Node and
-// no installed dependencies, and with no build-time dependency on that gitignored file existing
-// on disk. See `handoff/C1-DESIGN.md` §1 for the route table this implements.
+// no static `import ... from "../index/did-ledger-compact.json"` either, and (package D2) no
+// static `import ... from "./offer-shape.json"` either -- so `worker/test/router.test.mjs` can
+// exercise the whole JSON surface with plain Windows Node and no installed dependencies, and with
+// no build-time dependency on the gitignored ledger file existing on disk. See
+// `handoff/C1-DESIGN.md` §1 for the route table this implements.
 //
-// Pure over its inputs: every exported function takes `index`/`ledger`/`env`/`request` explicitly
-// and touches no module-level mutable state. NOT guaranteed: this module does not itself
-// rate-limit `/mcp` (the MCP transport lives in `index.js`, which calls {@link checkRateLimit} the
-// same way this module does for its own routes) and does not know anything about MCP tool
-// schemas.
+// Pure over its inputs: every exported function takes `index`/`ledger`/`offerShape`/`env`/
+// `request` explicitly and touches no module-level mutable state. NOT guaranteed: this module does
+// not itself rate-limit `/mcp` (the MCP transport lives in `index.js`, which calls
+// {@link checkRateLimit} the same way this module does for its own routes) and does not know
+// anything about MCP tool schemas.
 
 import { codePointLength, search } from "./search.js";
 
@@ -47,6 +48,25 @@ const SEARCH_CACHE_SECONDS = 60;
 const CARD_CACHE_SECONDS = 300;
 const K_DIGITS_RE = /^[0-9]+$/;
 
+// `/route` (package D2) -- same alphabet for `model_hash` and `precision`, only the length bound
+// differs; deliberately not validated against any fixed vocabulary (the FLOP `SessionOffer` field
+// vocabulary is unpublished -- see `offer-shape.json`). Mirrors
+// `openagentsearch.api.route`'s `_MODEL_HASH_RE`/`_PRECISION_RE` exactly. Exported so
+// `worker/src/index.js`'s `route` MCP tool can apply the same charset check {@link parseRouteParams}
+// does -- like `did_lookup` reusing {@link DID_RE}, a zod schema only bounds length/type, not
+// charset.
+export const MODEL_HASH_RE = /^[A-Za-z0-9:_./-]{1,128}$/;
+export const PRECISION_RE = /^[A-Za-z0-9:_./-]{1,32}$/;
+const MAX_LATENCY_MS = 600000;
+// The `did:key:` method, multibase `z` prefix, 1-120 base58 characters -- {@link DID_RE} anchored
+// to a whole string; this one is unanchored, used to find mentions inside free text (a hit's
+// snippet), matching `openagentsearch.api.route`'s `_DID_FINDALL_RE`.
+const DID_FINDALL_RE = /did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}/g;
+const ROUTE_CANDIDATES_REASON =
+  "no SessionOffer shape is public; nothing in this response is an offer";
+const ROUTE_RANKING_REASON =
+  "no published quote unit; cross-provider ranking is fail-closed (flop-labs/yellowpaper#26)";
+
 const INDEX_REDIRECTS = new Map([
   ["/index/manifest.json", `${STATIC_INDEX_BASE}/index/manifest.json`],
   ["/index/flop-surface.jsonl", `${STATIC_INDEX_BASE}/index/flop-surface.jsonl`],
@@ -65,7 +85,7 @@ const ROUTE_LIST = Object.freeze([
   "POST /mcp",
 ]);
 
-const TOOL_LIST = Object.freeze(["search", "did_lookup", "index_info"]);
+const TOOL_LIST = Object.freeze(["search", "did_lookup", "index_info", "route"]);
 
 /**
  * The common header set every response carries, `Cache-Control` aside (passed by the caller,
@@ -344,6 +364,138 @@ export function parseSearchParams(params, knownKindsSet) {
 }
 
 /**
+ * Parses and validates the `/route` query string (package D2). Returns `{error, field}` naming
+ * the first problem found (`missing_model_hash`, `invalid_model_hash`, `invalid_precision`,
+ * `invalid_max_latency_ms`, `invalid_k`), or `{model_hash, precision, max_latency_ms, k}` on
+ * success -- mirrors `openagentsearch.api.route.parse_route_params`'s validation order and error
+ * vocabulary exactly. `params.get(name)` already implements "repeated parameters: the first value
+ * wins" (the same convention {@link parseSearchParams} relies on).
+ *
+ * NOT guaranteed: this validates shape and bounds only -- it never touches the index, so a
+ * syntactically valid combination can still find zero observations.
+ *
+ * @param {URLSearchParams} params
+ * @returns {{error: string, field: string} | {model_hash: string, precision: string | null, max_latency_ms: number | null, k: number}}
+ */
+export function parseRouteParams(params) {
+  const modelHash = params.get("model_hash");
+  if (modelHash === null) return { error: "missing_model_hash", field: "model_hash" };
+  if (!MODEL_HASH_RE.test(modelHash)) {
+    return { error: "invalid_model_hash", field: "model_hash" };
+  }
+
+  let precision = null;
+  const precisionRaw = params.get("precision");
+  if (precisionRaw !== null) {
+    if (!PRECISION_RE.test(precisionRaw)) {
+      return { error: "invalid_precision", field: "precision" };
+    }
+    precision = precisionRaw;
+  }
+
+  let maxLatencyMs = null;
+  const maxLatencyRaw = params.get("max_latency_ms");
+  if (maxLatencyRaw !== null) {
+    if (maxLatencyRaw === "" || !K_DIGITS_RE.test(maxLatencyRaw)) {
+      return { error: "invalid_max_latency_ms", field: "max_latency_ms" };
+    }
+    maxLatencyMs = Number.parseInt(maxLatencyRaw, 10);
+    if (!Number.isInteger(maxLatencyMs) || maxLatencyMs < 1 || maxLatencyMs > MAX_LATENCY_MS) {
+      return { error: "invalid_max_latency_ms", field: "max_latency_ms" };
+    }
+  }
+
+  let k = DEFAULT_K;
+  const kRaw = params.get("k");
+  if (kRaw !== null) {
+    if (kRaw === "" || !K_DIGITS_RE.test(kRaw)) return { error: "invalid_k", field: "k" };
+    k = Number.parseInt(kRaw, 10);
+    if (!Number.isInteger(k) || k < MIN_K || k > MAX_K) return { error: "invalid_k", field: "k" };
+  }
+
+  return { model_hash: modelHash, precision, max_latency_ms: maxLatencyMs, k };
+}
+
+/**
+ * Every `did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}` token found in `text`, in order of first
+ * appearance, de-duplicated, cut at `limit` -- the JavaScript port of
+ * `openagentsearch.api.route.extract_dids`. A mention only: this says nothing about who wrote
+ * `text`, and finding none is not an error (an empty array).
+ *
+ * @param {string} text
+ * @param {number} [limit]
+ * @returns {string[]}
+ */
+export function extractDids(text, limit = 5) {
+  const seen = new Set();
+  const found = [];
+  for (const match of text.matchAll(DID_FINDALL_RE)) {
+    const did = match[0];
+    if (seen.has(did)) continue;
+    seen.add(did);
+    found.push(did);
+    if (found.length >= limit) break;
+  }
+  return found;
+}
+
+/**
+ * The full `/route` body for one already-validated {@link parseRouteParams} result (package D2) --
+ * shared by `GET /route` ({@link handleJsonRoute}) and the `route` MCP tool
+ * (`worker/src/index.js`), the SAME "one shape everywhere" convention {@link lookupDid} uses for
+ * `/did/{did}`.
+ *
+ * `candidates` is always `[]` and `ranking` is always `null` -- an invariant, not a fixture
+ * accident, while `offerShape.published` is `false` (see `worker/src/offer-shape.json`'s own
+ * generator, `scripts/make_offer_shape_json.py`, for why). `observations` are
+ * `search(index, observationsQuery, k, null)`'s hits (no `kind` filter), each joined to `ledger`
+ * by the `did:key:` tokens {@link extractDids} finds in the hit's `snippet`, via {@link lookupDid}
+ * itself -- so a `dids[].ledger` body is byte-identical to what `/did/{did}` would answer for the
+ * same DID, never re-derived.
+ *
+ * @param {object} index a parsed `lexical-v1.json` document
+ * @param {object | null} ledger a parsed `did-ledger-compact.json` document, or `null`
+ * @param {object} offerShape a parsed `offer-shape.json` document (never `null` here -- the
+ *   caller checks that first)
+ * @param {{model_hash: string, precision: string | null, max_latency_ms: number | null, k: number}} params
+ * @returns {object}
+ */
+export function buildRouteBody(index, ledger, offerShape, params) {
+  const { model_hash: modelHash, precision, max_latency_ms: maxLatencyMs, k } = params;
+  const observationsQuery = precision === null ? modelHash : `${modelHash} ${precision}`;
+  const hits = search(index, observationsQuery, k, null);
+  const observations = hits.map((hit) => ({
+    url: hit.doc_url,
+    kind: hit.kind,
+    score: hit.score,
+    text: hit.snippet,
+    dids: extractDids(hit.snippet).map((did) => ({ did, ledger: lookupDid(ledger, did).body })),
+  }));
+  return {
+    query: { model_hash: modelHash, precision, max_latency_ms: maxLatencyMs, k },
+    advisory: true,
+    // Rebuilt field by field in the documented order (`published, source, watch, binds`) -- the
+    // generated `offer-shape.json` is written with sorted keys for byte-determinism, and JSON
+    // key order survives `JSON.parse`/`stringify`, so splatting the parsed file here would make
+    // the Worker's bytes differ from the A2 server's for the same body.
+    offer_shape: {
+      published: offerShape.published,
+      source: offerShape.source,
+      watch: offerShape.watch,
+      binds: offerShape.binds,
+    },
+    candidates: [],
+    candidates_reason: ROUTE_CANDIDATES_REASON,
+    ranking: null,
+    ranking_reason: ROUTE_RANKING_REASON,
+    observations,
+    observations_query: observationsQuery,
+    index_generated_at: index.generated_at,
+    ledger_generated_at: ledger == null ? null : ledger.generated_at,
+  };
+}
+
+/**
  * Handles every JSON route (everything except `/mcp`, which `worker/src/index.js` owns) for one
  * request: path-length bound, the rate limiter (all routes except `/` and `/healthz`), method
  * validation (`405` + `Allow` for anything but `GET`/`HEAD`), and the route table itself. Always
@@ -362,6 +514,9 @@ export function parseSearchParams(params, knownKindsSet) {
  * @param {Set<string>} [knownKindsSet] the valid `kind` values for `index` (see {@link knownKinds});
  *   computed fresh from `index` when omitted -- callers that serve many requests over the same
  *   `index` (e.g. {@link makeWorker}) should compute it once and pass it, per the kind rule.
+ * @param {object | null} [offerShape] a parsed `offer-shape.json` document, or `null`/omitted --
+ *   `GET /route` then answers `500 {"error": "offer_shape_missing"}` for every request (package
+ *   D2): a deploy built without this artifact must not answer a wrong shape.
  * @returns {Promise<Response>}
  */
 export async function handleJsonRoute(
@@ -370,6 +525,7 @@ export async function handleJsonRoute(
   request,
   env,
   knownKindsSet = new Set(knownKinds(index)),
+  offerShape = null,
 ) {
   const { method } = request;
   const url = new URL(request.url);
@@ -445,8 +601,35 @@ export async function handleJsonRoute(
   }
 
   if (pathname === "/route") {
-    // Reserved for package D2.
-    return jsonResponse(index, 404, { error: "not_found" }, { method });
+    // Present on every /route response, whatever its status, whenever a ledger is loaded -- the
+    // same convention the /did/{did} branch above uses ("present even for a 400: a ledger IS
+    // loaded, so there is something to report").
+    const routeLedgerHeaders =
+      ledger == null ? {} : { "x-ledger-generated-at": ledger.generated_at };
+    // A deploy built without `offer-shape.json` must not silently answer a wrong (stale or
+    // fabricated) `offer_shape` -- fail closed instead, before any query parsing.
+    if (offerShape == null) {
+      return jsonResponse(index, 500, { error: "offer_shape_missing" }, {
+        method,
+        cacheSeconds: SEARCH_CACHE_SECONDS,
+        extraHeaders: routeLedgerHeaders,
+      });
+    }
+    const parsed = parseRouteParams(url.searchParams);
+    if ("error" in parsed) {
+      return jsonResponse(
+        index,
+        400,
+        { error: parsed.error, field: parsed.field },
+        { method, cacheSeconds: SEARCH_CACHE_SECONDS, extraHeaders: routeLedgerHeaders },
+      );
+    }
+    const body = buildRouteBody(index, ledger, offerShape, parsed);
+    return jsonResponse(index, 200, body, {
+      method,
+      cacheSeconds: SEARCH_CACHE_SECONDS,
+      extraHeaders: routeLedgerHeaders,
+    });
   }
 
   if (isIndexRedirect) {
@@ -470,9 +653,11 @@ export async function handleJsonRoute(
  * @param {object} index a parsed `lexical-v1.json` document
  * @param {object | null} [ledger] a parsed `did-ledger-compact.json` document, or `null`/omitted
  *   (`/did/{did}` then answers `ledger_not_built` for every well-formed DID -- package B2)
+ * @param {object | null} [offerShape] a parsed `offer-shape.json` document, or `null`/omitted
+ *   (`GET /route` then answers `500 {"error": "offer_shape_missing"}` -- package D2)
  * @returns {{fetch: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>, handle: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>}}
  */
-export function makeWorker(index, ledger = null) {
+export function makeWorker(index, ledger = null, offerShape = null) {
   // Computed once per loaded `index`, not per request or hard-coded -- see the kind rule at
   // {@link knownKinds}.
   const knownKindsSet = new Set(knownKinds(index));
@@ -482,7 +667,7 @@ export function makeWorker(index, ledger = null) {
    * @returns {Promise<Response>}
    */
   async function handle(request, env) {
-    return handleJsonRoute(index, ledger, request, env, knownKindsSet);
+    return handleJsonRoute(index, ledger, request, env, knownKindsSet, offerShape);
   }
   return { fetch: handle, handle };
 }

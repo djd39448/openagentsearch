@@ -103,3 +103,17 @@ def test_release_document_has_no_tag_or_publish_side_effect_commands():
     for forbidden in ("git tag", "git push --tags", "twine upload", "hatch publish", "uv publish", "gh release create"):
         assert forbidden not in releasing, forbidden
     assert "owner-authorized" in releasing
+
+
+def test_route_never_cites_the_unpublished_yellowpaper_item():
+    """Package D2: `E.33`/`E.46` are documented open items elsewhere in this project's yellow-paper
+    tracking, but `E.54` names an unpublished item that must never be cited as though it justified
+    `/route`'s shape -- guard every file this package touches."""
+    for relative in (
+        "src/openagentsearch/api/route.py",
+        "worker/src/routes.js",
+        "docs/api.md",
+        "README.md",
+        "CHANGELOG.md",
+    ):
+        assert "E.54" not in _read(relative), relative

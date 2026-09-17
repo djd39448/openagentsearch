@@ -4,9 +4,12 @@
 `ThreadingHTTPServer` wired to a `VectorStore` and an embedder, plus (package B2) an optional
 `--ledger PATH` compact reputation ledger mounted at `/did/{did}` -- absent, `/did/{did}` answers
 `ledger_not_built` for every well-formed DID, exactly like the public Worker before it is built
-one. Prints one compact JSON line to stdout describing where it is listening, and then blocks
-until it receives SIGINT, SIGTERM, or (on Windows) SIGBREAK / CTRL_BREAK_EVENT. On that signal it
-shuts the server down, closes the store, prints one final JSON line, and exits 0.
+one; and (package D2) `/route`, an observations-only routing-signals endpoint that never returns a
+candidate or a ranking (see `openagentsearch.api.route`'s module docstring for why) and reads the
+same `--ledger` when one is loaded. Prints one compact JSON line to stdout describing where it is
+listening, and then blocks until it receives SIGINT, SIGTERM, or (on Windows) SIGBREAK /
+CTRL_BREAK_EVENT. On that signal it shuts the server down, closes the store, prints one final
+JSON line, and exits 0.
 
 This is a development/demo launcher, not a production process supervisor: there is no
 daemonization, no PID file, no log rotation, and no automatic restart or health monitoring.
@@ -21,6 +24,7 @@ import signal
 import sys
 import threading
 from collections.abc import Sequence
+from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import FrameType
@@ -28,11 +32,13 @@ from types import FrameType
 from openagentsearch.api.did import make_did_prefix_route
 from openagentsearch.api.doc import make_doc_route
 from openagentsearch.api.healthz import make_healthz_route
+from openagentsearch.api.route import ObservationHit, SearchFn, make_route_route
 from openagentsearch.api.search import DocURLResolver, Embedder, make_search_route
 from openagentsearch.api.server import JSONRoute, PrefixJSONRoute, create_server
 from openagentsearch.embed.keyword import KeywordEmbedder
 from openagentsearch.embed.ollama import OllamaEmbedClient
 from openagentsearch.reputation.compact import CompactLedger, load_compact_ledger
+from openagentsearch.vector.search import cosine_search
 from openagentsearch.vector.store import VectorStore
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost"})
@@ -116,6 +122,51 @@ def _resolve_doc_url_factory(store: VectorStore) -> DocURLResolver:
     return resolve
 
 
+def _make_observation_search(
+    store: VectorStore, embedder: Embedder, resolve_doc_url: DocURLResolver
+) -> SearchFn:
+    """Builds the `SearchFn` `/route` (package D2) injects for its `observations`: the SAME
+    ranking `/search` uses (`cosine_search` over `embedder.embed(query)`), reshaped to
+    `openagentsearch.api.route.ObservationHit` (`url`/`kind`/`score`/`text`) instead of
+    `/search`'s own `chunk_id`/`doc_sha256`/`doc_url`/`score`/`snippet` -- `kind` is always `None`
+    here (the vector store carries no `kind`; only the Worker's lexical index does), `text` is the
+    same 200-character snippet `/search` returns. Mirrors
+    `openagentsearch.api.search.make_search_route`'s all-zero-vector short circuit so a tokenless
+    query (for example under `KeywordEmbedder`) answers an empty hit list instead of raising."""
+
+    def search(query: str, k: int) -> list[ObservationHit]:
+        query_vector = embedder.embed(query)
+        if not query_vector or not any(query_vector):
+            return []
+        results = cosine_search(store, query_vector, k)
+        hits: list[ObservationHit] = []
+        for chunk_id, score in results:
+            record = store.get(chunk_id)
+            if record is None:
+                continue
+            doc_url = resolve_doc_url(str(record["doc_sha256"]))
+            hits.append(
+                ObservationHit(
+                    url=doc_url,
+                    kind=None,
+                    score=score,
+                    text=str(record["text"])[:200],
+                )
+            )
+        return hits
+
+    return search
+
+
+def _now_iso() -> str:
+    """The current UTC time, `YYYY-MM-DDTHH:MM:SSZ` -- used as `/route`'s `index_generated_at` on
+    the A2 server (`build_server`, below). Unlike the Worker's bundled `lexical-v1.json`, this
+    server has no static index snapshot with its own `generated_at`: its "index" is the live
+    `VectorStore`, so the moment this process started serving is the honest freshness signal to
+    report, not a claim that the store's contents are frozen as of that instant."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def build_server(args: argparse.Namespace) -> tuple[ThreadingHTTPServer, VectorStore]:
     """Construct the `VectorStore`, embedder, and `ThreadingHTTPServer` described by parsed CLI
     arguments (from `_build_parser().parse_args(...)`, with `args.dimension` already resolved to
@@ -147,9 +198,15 @@ def build_server(args: argparse.Namespace) -> tuple[ThreadingHTTPServer, VectorS
         if args.ledger is not None:
             ledger = load_compact_ledger(Path(args.ledger))
         resolve_doc_url = _resolve_doc_url_factory(store)
+        observation_search = _make_observation_search(store, embedder, resolve_doc_url)
+        ledger_lookup = None if ledger is None else ledger.lookup
+        ledger_generated_at = None if ledger is None else ledger.generated_at
         routes: dict[str, JSONRoute] = {
             "/healthz": make_healthz_route(store, ledger),
             "/search": make_search_route(store, embedder, resolve_doc_url),
+            "/route": make_route_route(
+                observation_search, ledger_lookup, _now_iso(), ledger_generated_at
+            ),
         }
         # `/did/` is always mounted (like the Worker's `makeWorker(index, ledger = null)`): a
         # well-formed DID answers `ledger_not_built` when `ledger is None`, exactly as documented,

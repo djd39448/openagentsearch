@@ -33,6 +33,11 @@ const LEDGER = JSON.parse(
     "utf-8",
   ),
 );
+// Package D2: the committed, generated offer-shape artifact the deployed Worker bundles -- used by
+// the `route` tests below; the other tests omit it (so `route` answers `offer_shape_missing`).
+const OFFER_SHAPE = JSON.parse(
+  readFileSync(path.join(REPO_ROOT, "worker", "src", "offer-shape.json"), "utf-8"),
+);
 const NON_BURST_DID = Object.keys(LEDGER.non_burst).sort()[0];
 const BURST_DID = Object.keys(LEDGER.burst)[0];
 const UNKNOWN_DID = "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf";
@@ -79,8 +84,8 @@ async function readRpcMessage(res) {
  * @returns {Promise<Response>}
  */
 async function postMcp(body, opts = {}) {
-  const { env = ALWAYS_ALLOW, headers = {}, method = "POST", ledger = null } = opts;
-  const worker = makeWorker(INDEX, ledger);
+  const { env = ALWAYS_ALLOW, headers = {}, method = "POST", ledger = null, offerShape = null } = opts;
+  const worker = makeWorker(INDEX, ledger, offerShape);
   const request = new Request(`${BASE}/mcp`, {
     method,
     headers: {
@@ -122,7 +127,7 @@ test("tools/list lists exactly search, did_lookup, index_info with the documente
   const tools = message.result.tools;
   assert.deepEqual(
     tools.map((t) => t.name).sort(),
-    ["did_lookup", "index_info", "search"],
+    ["did_lookup", "index_info", "route", "search"],
   );
 
   const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
@@ -261,6 +266,63 @@ test("tools/call did_lookup matches GET /did/{did} exactly (route parity)", asyn
 
     assert.deepEqual(mcpBody, routeBody, did);
   }
+});
+
+// --- tools/call route (package D2) --------------------------------------------------------------
+
+test("tools/call route matches GET /route exactly (route parity), with and without a ledger", async () => {
+  const cases = [
+    { args: { model_hash: "hello", precision: "fp16", max_latency_ms: 1500, k: 3 }, ledger: LEDGER },
+    { args: { model_hash: "hello" }, ledger: LEDGER },
+    { args: { model_hash: "hello", k: 2 }, ledger: null },
+  ];
+  for (const { args, ledger } of cases) {
+    const mcpRes = await postMcp(rpc("tools/call", { name: "route", arguments: args }), {
+      ledger,
+      offerShape: OFFER_SHAPE,
+    });
+    const message = await readRpcMessage(mcpRes);
+    assert.notEqual(message.result.isError, true, JSON.stringify(args));
+    const mcpBody = JSON.parse(message.result.content[0].text);
+
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(args)) params.set(key, String(value));
+    const jsonWorker = makeJsonWorker(INDEX, ledger, OFFER_SHAPE);
+    const routeRes = await jsonWorker.fetch(
+      new Request(`${BASE}/route?${params.toString()}`, { method: "GET" }),
+      ALWAYS_ALLOW,
+    );
+    assert.equal(routeRes.status, 200);
+    const routeBody = await routeRes.json();
+
+    assert.deepEqual(mcpBody, routeBody, JSON.stringify(args));
+    assert.deepEqual(mcpBody.candidates, []);
+    assert.equal(mcpBody.ranking, null);
+    assert.deepEqual(mcpBody.offer_shape, OFFER_SHAPE);
+  }
+});
+
+test("tools/call route answers the app-level offer_shape_missing body when no offer shape is loaded", async () => {
+  const res = await postMcp(
+    rpc("tools/call", { name: "route", arguments: { model_hash: "hello" } }),
+    { ledger: LEDGER },
+  );
+  const message = await readRpcMessage(res);
+  assert.equal(message.result.isError, true);
+  assert.deepEqual(JSON.parse(message.result.content[0].text), { error: "offer_shape_missing" });
+});
+
+test("tools/call route rejects a model_hash outside the alphabet with the app-level body, not a schema error", async () => {
+  const res = await postMcp(
+    rpc("tools/call", { name: "route", arguments: { model_hash: "has space" } }),
+    { ledger: LEDGER, offerShape: OFFER_SHAPE },
+  );
+  const message = await readRpcMessage(res);
+  assert.equal(message.result.isError, true);
+  assert.deepEqual(JSON.parse(message.result.content[0].text), {
+    error: "invalid_model_hash",
+    field: "model_hash",
+  });
 });
 
 // --- tools/call index_info ------------------------------------------------------------------

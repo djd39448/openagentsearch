@@ -110,6 +110,16 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - `openagentsearch.flop.offer`: a fail-closed `SessionOffer` seam that answers
   `OFFER_SHAPE_UNPUBLISHED` for every input until flop-labs publishes the v1/v2 shape. See
   [docs/flop-wire.md](./docs/flop-wire.md).
+- `GET /route` (package D2, `openagentsearch.api.route` and `worker/src/routes.js`): routing
+  signals, observations-only — designed so a router like `retardio73-boop/flop-session-router` can
+  consume this service's `/search` and `/did/{did}` as an observation source. `candidates` is
+  always `[]` and `ranking` is always `null` (no public `SessionOffer` shape, no published quote
+  unit to rank across providers — `flop-labs/yellowpaper#26`); `observations` are this service's
+  own existing search hits for the queried `model_hash`/`precision` tokens, each joined to the
+  reputation ledger by any `did:key:` mentions in the hit's text, through the SAME lookup
+  `GET /did/{did}` uses. Served identically on the A2 server and the Worker (plus a `route` MCP
+  tool); the Worker's copy of `offer_shape` is a generated, committed file
+  (`worker/src/offer-shape.json`). See [docs/api.md](./docs/api.md).
 
 ## What is not wired yet
 
@@ -147,9 +157,11 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - no sr25519 verification (`openagentsearch.flop.wire` decodes and recomputes FLOP v1 wire
   objects, but every signature check reports `not_verified` unless the caller injects a real
   sr25519 verifier);
-- no offer parsing, no offer ingestion, no `/route`: `openagentsearch.flop.offer` answers
+- no offer parsing and no offer ingestion: `openagentsearch.flop.offer` answers
   `OFFER_SHAPE_UNPUBLISHED` for every input because the `SessionOffer` wire shape is not public
-  yet (see [docs/flop-wire.md](./docs/flop-wire.md)); nothing consumes offers today.
+  yet (see [docs/flop-wire.md](./docs/flop-wire.md)); nothing consumes offers today. `GET /route`
+  is live but returns no candidates and no ranking as a direct consequence — see `/route` above;
+  `max_latency_ms` there is accepted and echoed but never used to filter anything.
 
 ## Quick start
 
