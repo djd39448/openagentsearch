@@ -437,7 +437,10 @@ then `scripts/verify_public.py` — with every step gated on the previous one's 
 no-shrink sanity check (the new index and ledger may not lose more than 10 % of what is published)
 before anything is pushed, a `wrangler deploy --dry-run` before the real deploy, and a logged failure
 when the post-deploy verification does not match the build. If the embedding host is unreachable the
-day is skipped and logged, and the previously published index and ledger stay live; nothing in this
+day is skipped and logged, and the previously published index and ledger stay live. If only the
+ledger build fails (for example the ledger's own size guard), the index is still refreshed and the
+last good ledger stays deployed, so the index's and the ledger's `generated_at` can differ; the run
+is still reported as failed to the operator. Nothing in this
 repository depends on the task, and no test runs it. `generated_at` in every response is the
 authoritative freshness signal — expect it to move once a day, and read a stale value as "the last
 refresh did not complete", not as "the service is down".
