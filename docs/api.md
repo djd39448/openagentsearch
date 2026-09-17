@@ -440,7 +440,9 @@ when the post-deploy verification does not match the build. If the embedding hos
 day is skipped and logged, and the previously published index and ledger stay live. If only the
 ledger build fails (for example the ledger's own size guard), the index is still refreshed and the
 last good ledger stays deployed, so the index's and the ledger's `generated_at` can differ; the run
-is still reported as failed to the operator. Nothing in this
+is still reported as failed to the operator. The ledger the task publishes is scoped with
+`reputation.build --room` to the rooms the message log polls (the machine-flood rooms dropped from
+polling are left out — see [docs/reputation.md](./reputation.md) "Publishing"). Nothing in this
 repository depends on the task, and no test runs it. `generated_at` in every response is the
 authoritative freshness signal — expect it to move once a day, and read a stale value as "the last
 refresh did not complete", not as "the service is down".

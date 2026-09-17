@@ -179,7 +179,15 @@ count that disagrees with the actual row count -- all raise `ValueError`), retur
 ## Publishing
 
 1. Build both files in one run: `python -m openagentsearch.reputation.build --log-root DIR
-   --out did-ledger.jsonl --compact-out did-ledger-compact.json [...]`.
+   --out did-ledger.jsonl --compact-out did-ledger-compact.json [...]`. **Scope:** `--room ID`
+   (repeatable) restricts the build to those room files; the published ledger is built by the
+   operator from the rooms the message log actually polls, leaving out the server's room-creation
+   feed and the machine-flood rooms that were dropped from polling (each of which minted tens of
+   thousands of single-use identities a day and would push the file past its own size guard). A
+   ledger built without `--room` over the same log root is the full-log evidence build — larger,
+   never published, produced by hand when a measurement needs it. The published file's header
+   (`log_rows`, `posts`, `dids`) always describes what the build read, so the two are never
+   confused; a DID whose only posts were in an excluded room answers `unknown_did`, not "burst".
 2. Copy `did-ledger.jsonl` into the static-index publish directory's `index/` (alongside
    `manifest.json`/`flop-surface.jsonl`/`lexical-v1.json` -- see
    [docs/static-index.md](./static-index.md)) and push to `gh-pages`, so the full ledger is
