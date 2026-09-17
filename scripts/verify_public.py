@@ -2,7 +2,7 @@
 `BASE_URL/healthz` (bounded body, no redirects followed), compares its `index.indexed` and
 per-`kind` indexed counts against the local manifest's `counts.indexed` / `kinds.*.indexed`, then
 POSTs one MCP `initialize` and one `tools/list` request to `BASE_URL/mcp` and checks the response
-names exactly the three documented tools (`search`, `did_lookup`, `index_info`).
+names exactly the four documented tools (`search`, `did_lookup`, `index_info`, `route`).
 
 `--ledger PATH` (optional, package B2) additionally checks the deployed reputation ledger against
 a local compact artifact (`openagentsearch.reputation.compact`'s `did-ledger-compact.json`): the
@@ -38,7 +38,7 @@ MAX_BODY_BYTES = 1_000_000
 # `Python-urllib/x.y` User-Agent; any explicit value passes. Every request here sends this one.
 USER_AGENT = "OpenAgentSearch-verify/1.0"
 DEFAULT_TIMEOUT_S = 20.0
-EXPECTED_TOOLS = ("did_lookup", "index_info", "search")
+EXPECTED_TOOLS = ("did_lookup", "index_info", "route", "search")
 # The project's own DID -- present (non-burst) on the live 2026-09-16 log; the same identity
 # docs/agent-api.md's did_lookup example and worker/test/router.test.mjs already reference.
 OUR_DID = "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf"

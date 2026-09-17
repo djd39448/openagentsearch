@@ -40,7 +40,7 @@ MANIFEST_OK: dict[str, Any] = {
     "documents": [],
 }
 
-TOOLS_LIST_OK = ["did_lookup", "index_info", "search"]
+TOOLS_LIST_OK = ["did_lookup", "index_info", "route", "search"]
 
 # Package B2 -- --ledger fixtures. OUR_DID matches scripts/verify_public.py's own OUR_DID.
 OUR_DID = "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf"
