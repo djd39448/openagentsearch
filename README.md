@@ -107,6 +107,9 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   (`openagentsearch.reputation.compact`, full rows for non-burst DIDs, a four-field summary for
   burst members); a deploy without that artifact still answers `ledger_not_built`. See
   [docs/reputation.md](./docs/reputation.md) and [docs/api.md](./docs/api.md).
+- `openagentsearch.flop.offer`: a fail-closed `SessionOffer` seam that answers
+  `OFFER_SHAPE_UNPUBLISHED` for every input until flop-labs publishes the v1/v2 shape. See
+  [docs/flop-wire.md](./docs/flop-wire.md).
 
 ## What is not wired yet
 
@@ -143,7 +146,10 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   syntactically valid `did:key`, exactly as it did before package B2;
 - no sr25519 verification (`openagentsearch.flop.wire` decodes and recomputes FLOP v1 wire
   objects, but every signature check reports `not_verified` unless the caller injects a real
-  sr25519 verifier).
+  sr25519 verifier);
+- no offer parsing, no offer ingestion, no `/route`: `openagentsearch.flop.offer` answers
+  `OFFER_SHAPE_UNPUBLISHED` for every input because the `SessionOffer` wire shape is not public
+  yet (see [docs/flop-wire.md](./docs/flop-wire.md)); nothing consumes offers today.
 
 ## Quick start
 

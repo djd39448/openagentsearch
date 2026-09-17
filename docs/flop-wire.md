@@ -88,6 +88,38 @@ receipt (v1 and legacy) is signed directly over its raw message bytes -- it is n
 - **No claim of conformance beyond the public corpus.** A real FLOP deployment may extend or change
   these wire formats in ways a fixed, offline corpus snapshot cannot reveal.
 
+## Session offers (unpublished)
+
+`openagentsearch.flop.offer` is a *separate* seam from the wire-format decoders above: it exists
+for the `SessionOffer` opening object (runtime `StandingOffer` / SDK `SessionOffer`, v1 spot and
+v2 forward), not for the `DataRef`/`VerifiedTurn`/receipt/attestation objects this document covers.
+
+FLOP maintainer `sv` stated on `flop-labs/yellowpaper#26` (2026-09-14) that `SessionOffer` is
+defined only in the **private** `flop-labs/flop-core` repository (commit `41d0009`); a versioned
+quote/discovery contract with a signed wire shape is planned for a future appendix, but the
+published yellow paper v0.5.0 does not contain it, and `flop-labs/flop-core` answers 404 to the
+public (verified 2026-09-17).
+
+Until that shape is published, `parse_session_offer(data: bytes | bytearray, *, max_bytes=65536)
+-> OfferParseResult` never inspects `data`'s content -- it validates the type and bound of the input,
+hashes the raw bytes (`input_sha256`), and always returns `status ==
+"OFFER_SHAPE_UNPUBLISHED"`. A well-formed future `SessionOffer` and 4 KiB of random bytes get the
+exact same answer today: this module has no way to distinguish them, and does not pretend to.
+
+`offer_shape_status()` returns the single `OfferShapeStatus` describing that state:
+`published=False`, a `source` naming the private commit and sv's comment, `watch` (the places a
+publication will show up), and `binds` -- a tuple of twelve snake_case field names (`miner`,
+`chain_genesis`, `model_hash`, `precision`, `enclave_key`, `minimum_escrow`, `sla_bounds`,
+`advisory_capacity_hint`, `expiry`, `nonce`, `signature`, `forward_terms`) taken from sv's prose
+description of what the object "authoritatively binds." **`binds` is vocabulary from a public
+comment, not a schema**: no field types, encodings, byte ordering, or signing domain are public,
+and `binds` will be replaced -- not extended -- the day the real shape lands.
+
+A caller (the future `/route`, package D2) may conclude exactly nothing about an offer's validity
+from `OFFER_SHAPE_UNPUBLISHED`: not accepted, not rejected as malformed, unknown. Treating this
+status as a rejection would be wrong the same way treating it as an acceptance would be wrong --
+until the shape is public, this package cannot tell the two apart.
+
 ## One documented corpus discrepancy: `wrong_path_orientation`
 
 The corpus's `negative_cases` entry `wrong_path_orientation` states `"expected": "reject

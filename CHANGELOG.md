@@ -46,6 +46,19 @@ package publication, or hosted release exists.
   done-when in BUILDSPEC §3. No signature verification anywhere in this path; a score remains
   evidence, never an endorsement. See [docs/reputation.md](./docs/reputation.md) and
   [docs/api.md](./docs/api.md).
+- `openagentsearch.flop.offer` (package D1): a fail-closed parsing seam for the FLOP
+  `SessionOffer` opening object. The runtime `StandingOffer` / SDK `SessionOffer` (v1 spot, v2
+  forward) is defined only in the private `flop-labs/flop-core` repository (sv,
+  flop-labs/yellowpaper#26, 2026-09-14); the published yellow paper v0.5.0 does not contain its
+  wire shape. `parse_session_offer(data: bytes | bytearray, *, max_bytes=65536) ->
+  OfferParseResult` never inspects `data`'s content -- only its length and sha256 -- and always answers `status ==
+  "OFFER_SHAPE_UNPUBLISHED"`, never "accepted," never "rejected as malformed": a well-formed
+  future offer and random bytes get the same answer today. `offer_shape_status()` returns the
+  constant `OfferShapeStatus` (`published=False`, `source`, `watch`, and `binds` -- twelve
+  snake_case field names taken from sv's prose description of what the object binds, vocabulary
+  from a comment, not a schema; replaced, not extended, once the shape is public). Pure, stdlib
+  only, no network. This fixes the seam so a future D2 `/route` can state why it does not parse
+  offers. See [docs/flop-wire.md](./docs/flop-wire.md).
 
 ## 0.2.0 - 2026-09-16
 
