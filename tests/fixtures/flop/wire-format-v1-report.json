@@ -1,0 +1,499 @@
+{
+  "corpus": {
+    "bytes": 24213,
+    "commit": "cb3cbf97a346ff85aca6dba5e924434270ca672c",
+    "path": "evidence/wire-format-v1.json",
+    "profile": "flop-wire-v1",
+    "repository": "flop-labs/yellowpaper",
+    "sha256": "80d4a7e70f984342eb474ae5285a17a6b9348eca887e1689b15e641922051d93",
+    "status": "public-canonical"
+  },
+  "deviations": [
+    {
+      "case": "wrong_path_orientation",
+      "expected": "reject LeafNotInRoot",
+      "observed": "root unchanged: the step-0 sibling is the leaf's own duplicate, so blake2_256(X||X) is orientation-blind",
+      "upstream_issue": "https://github.com/flop-labs/yellowpaper/issues/44"
+    }
+  ],
+  "implementation": {
+    "language": "python-stdlib",
+    "module": "openagentsearch.flop.wire",
+    "repository": "djd39448/openagentsearch",
+    "signature_verification": "none (sr25519 not in the standard library; every signature check reports not_verified, never a pass)"
+  },
+  "negative_cases": [
+    {
+      "expected": "reject",
+      "id": "unknown_leaf_enum",
+      "matches_expected": true,
+      "observed": "rejected: unknown tag"
+    },
+    {
+      "expected": "reject",
+      "id": "unknown_retention_enum",
+      "matches_expected": true,
+      "observed": "rejected: unknown tag"
+    },
+    {
+      "expected": "reject",
+      "id": "truncated_fcc4",
+      "matches_expected": true,
+      "observed": "rejected: truncated"
+    },
+    {
+      "expected": "reject",
+      "id": "trailing_fcc4",
+      "matches_expected": true,
+      "observed": "rejected: trailing bytes"
+    },
+    {
+      "expected": "reject",
+      "id": "unknown_fcc_version",
+      "matches_expected": true,
+      "observed": "rejected: unknown magic"
+    },
+    {
+      "expected": "reject DuplicateVerifiedTurn",
+      "id": "duplicate_turn_index",
+      "matches_expected": true,
+      "observed": "rejected: DuplicateVerifiedTurn"
+    },
+    {
+      "expected": "reject LeafNotInRoot",
+      "id": "wrong_path_orientation",
+      "matches_expected": false,
+      "note": "verified cause: step-0 sibling == leaf hash True; sibling_is_left True; recomputed root == final_root True",
+      "observed": "not_rejected: verified_work_from_turns accepted the turn (turn_count=1); see deviations[0]"
+    },
+    {
+      "expected": "different channel_id",
+      "id": "wrong_genesis_network",
+      "matches_expected": true,
+      "note": "not a decode rejection: a different channel_id is the expected, correct outcome",
+      "observed": "not_rejected: recomputed channel_id through the real builder with the mutated genesis_hash substituted -- differs from the baseline"
+    },
+    {
+      "expected": "different channel_id",
+      "id": "wrong_session",
+      "matches_expected": true,
+      "note": "mutation is \"change agent/miner/nonce\" but bytes_hex is a single H256-sized value; substituted for agent here, mirroring the test",
+      "observed": "not_rejected: recomputed channel_id through the real builder with the mutated value substituted for agent -- differs from the baseline"
+    },
+    {
+      "expected": "reject LeafFieldsInconsistent",
+      "id": "wrong_leaf_version",
+      "matches_expected": true,
+      "observed": "rejected: LeafFieldsInconsistent"
+    },
+    {
+      "expected": "reject BadReceiptSignature",
+      "id": "invalid_receipt_signature",
+      "matches_expected": null,
+      "note": "the corpus test proves rejection using an injected StubVerifier (a test device); this report does not treat that as evidence of a real cryptographic result",
+      "observed": "not_verifiable: no sr25519 implementation in this package; check_receipt_signature reports status='not_verified' without an injected verifier, never accepted or rejected"
+    },
+    {
+      "expected": "reject BadValidatorSignature",
+      "id": "invalid_validator_signature",
+      "matches_expected": null,
+      "note": "the corpus test proves rejection using an injected StubVerifier (a test device); this report does not treat that as evidence of a real cryptographic result",
+      "observed": "not_verifiable: no sr25519 implementation in this package; check_validator_signature reports status='not_verified' without an injected verifier, never accepted or rejected"
+    },
+    {
+      "expected": "reject UnsupportedLeafVersion",
+      "id": "legacy_leaf_current_channel",
+      "matches_expected": true,
+      "note": "rejected only once channel_has_decode_policy=True (channel STATE, not a wire-bytes violation); accepted (turn_count=1) when False",
+      "observed": "rejected: UnsupportedLeafVersion"
+    },
+    {
+      "expected": "reject BadReceiptSignature",
+      "id": "legacy_receipt_current_channel",
+      "matches_expected": null,
+      "note": "decodes as LegacyReceipt (untagged 96 B message) whose message equals the v1 message with the 29 B domain/version prefix stripped: True; the corpus test proves the rejection only with an injected StubVerifier (a test device); a real verifier is required to confirm BadReceiptSignature",
+      "observed": "not_verifiable: no sr25519 implementation in this package; check_receipt_signature reports status='not_verified' (never accepted)"
+    }
+  ],
+  "regenerate": "python scripts/make_wire_conformance_report.py --corpus tests/fixtures/flop/wire-format-v1.json --out tests/fixtures/flop/wire-format-v1-report.json",
+  "schema": "openagentsearch.flop-wire-conformance-report/1",
+  "summary": {
+    "deviations": 1,
+    "matching": 10,
+    "negative_cases": 14,
+    "not_verifiable": 3,
+    "vectors": 38,
+    "vectors_ok": 38
+  },
+  "vectors": [
+    {
+      "checks": [
+        "little_endian_mentioned"
+      ],
+      "detail": "description present",
+      "id": "codec.fixed_integers",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "raises_WireDecodeError",
+        "reason_matches",
+        "str_starts_with_reason"
+      ],
+      "detail": "rejected as 'exceeds u32'",
+      "id": "codec.malformed_compact.exceeds_u32",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "raises_WireDecodeError",
+        "reason_matches",
+        "str_starts_with_reason"
+      ],
+      "detail": "rejected as 'overlong'",
+      "id": "codec.malformed_compact.overlong_big_mode",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "raises_WireDecodeError",
+        "reason_matches",
+        "str_starts_with_reason"
+      ],
+      "detail": "rejected as 'overlong'",
+      "id": "codec.malformed_compact.overlong_zero",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "raises_WireDecodeError",
+        "reason_matches",
+        "str_starts_with_reason"
+      ],
+      "detail": "rejected as 'truncated'",
+      "id": "codec.malformed_compact.truncated",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "raises_WireDecodeError",
+        "reason_matches",
+        "str_starts_with_reason"
+      ],
+      "detail": "rejected as 'truncated'",
+      "id": "codec.malformed_compact.truncated_mode_1",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "raises_WireDecodeError",
+        "reason_matches",
+        "str_starts_with_reason"
+      ],
+      "detail": "rejected as 'truncated'",
+      "id": "codec.malformed_compact.truncated_mode_2",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "false_decodes_false",
+        "true_decodes_true",
+        "other_is_reject_in_corpus",
+        "other_byte_rejected",
+        "other_reason_is_invalid_bool"
+      ],
+      "detail": "0x00/0x01/other all agree",
+      "id": "codec.scale_bool",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "value_matches",
+        "round_trip_matches"
+      ],
+      "detail": "decoded value and round-trip match",
+      "id": "codec.scale_compact_u32.0",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "value_matches",
+        "round_trip_matches"
+      ],
+      "detail": "decoded value and round-trip match",
+      "id": "codec.scale_compact_u32.1073741823",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "value_matches",
+        "round_trip_matches"
+      ],
+      "detail": "decoded value and round-trip match",
+      "id": "codec.scale_compact_u32.1073741824",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "value_matches",
+        "round_trip_matches"
+      ],
+      "detail": "decoded value and round-trip match",
+      "id": "codec.scale_compact_u32.16383",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "value_matches",
+        "round_trip_matches"
+      ],
+      "detail": "decoded value and round-trip match",
+      "id": "codec.scale_compact_u32.16384",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "value_matches",
+        "round_trip_matches"
+      ],
+      "detail": "decoded value and round-trip match",
+      "id": "codec.scale_compact_u32.4294967295",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "value_matches",
+        "round_trip_matches"
+      ],
+      "detail": "decoded value and round-trip match",
+      "id": "codec.scale_compact_u32.63",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "value_matches",
+        "round_trip_matches"
+      ],
+      "detail": "decoded value and round-trip match",
+      "id": "codec.scale_compact_u32.64",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "preimage_bytes",
+        "digest"
+      ],
+      "detail": "preimage and digest match",
+      "id": "compute_channel_v1.channel_id",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "channel_id_ascii",
+        "receipt_ascii"
+      ],
+      "detail": "ascii strings match",
+      "id": "compute_channel_v1.domains",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "channel_id_matches",
+        "turn_count_is_one",
+        "turn_fields_match"
+      ],
+      "detail": "decodes one V3 turn",
+      "id": "compute_channel_v1.fcc4_transcript_blob_hex",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "length",
+        "preimage_bytes",
+        "hash"
+      ],
+      "detail": "length/preimage/hash match",
+      "id": "compute_channel_v1.leaf_versions.V0",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "length",
+        "preimage_bytes",
+        "hash"
+      ],
+      "detail": "length/preimage/hash match",
+      "id": "compute_channel_v1.leaf_versions.V1",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "length",
+        "preimage_bytes",
+        "hash"
+      ],
+      "detail": "length/preimage/hash match",
+      "id": "compute_channel_v1.leaf_versions.V2",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "length",
+        "preimage_bytes",
+        "hash"
+      ],
+      "detail": "length/preimage/hash match",
+      "id": "compute_channel_v1.leaf_versions.V3",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "root_matches"
+      ],
+      "detail": "root matches",
+      "id": "compute_channel_v1.merkle.path_for_index_2",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "odd_node_behavior_is_duplicate_last",
+        "root_matches"
+      ],
+      "detail": "root matches",
+      "id": "compute_channel_v1.merkle.root_of_leaves",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "decodes_as_ReceiptV1",
+        "message_matches",
+        "signature_matches"
+      ],
+      "detail": "decodes and round-trips",
+      "id": "compute_channel_v1.receipt.decode_with_signature",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "message_matches_preimage",
+        "hashes_fn_matches_preimage"
+      ],
+      "detail": "messages match",
+      "id": "compute_channel_v1.receipt.message",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "leaf_hash_matches_leaf_versions"
+      ],
+      "detail": "hashes agree",
+      "id": "compute_channel_v1.v3_leaf_signature",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "decoded_fields_match",
+        "leaf_hash_matches",
+        "merkle_root_matches"
+      ],
+      "detail": "decodes and proves membership",
+      "id": "compute_channel_v1.verified_turn_v3_scale_hex",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "length_is_6",
+        "entry_shape"
+      ],
+      "detail": "6 rows, consistent shape",
+      "id": "coverage",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "commitment_matches",
+        "provider_id_matches",
+        "retention_is_ephemeral",
+        "encode_round_trip"
+      ],
+      "detail": "decodes and round-trips",
+      "id": "data_ref_v1",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "round_trip_equals_built"
+      ],
+      "detail": "round-trips (not corpus-covered: this script's own constructed Leased DataRef)",
+      "id": "data_ref_v1.leased_round_trip",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "encode_round_trip",
+        "version",
+        "policy_class",
+        "output_transform",
+        "hash_preimage",
+        "sha256",
+        "policy_hash_method"
+      ],
+      "detail": "decodes and hashes",
+      "id": "decode_policy_v1",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "preimage_bytes",
+        "result",
+        "trailing_32_zero"
+      ],
+      "detail": "preimage/result match",
+      "id": "direct_rail_v1.report_data",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "preimage_bytes",
+        "digest"
+      ],
+      "detail": "preimage and digest match",
+      "id": "direct_rail_v1.task_hash",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "tee_type",
+        "quote_verified",
+        "event_log_verified",
+        "validator_id",
+        "signature",
+        "signable_bytes",
+        "report_data"
+      ],
+      "detail": "decodes, signable bytes and report_data match",
+      "id": "direct_rail_v1.validator_attestation",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "receipt_not_verified",
+        "leaf_not_verified",
+        "validator_not_verified"
+      ],
+      "detail": "every check reports not_verified, never accepted",
+      "id": "signature_seam.no_verifier",
+      "result": "ok"
+    },
+    {
+      "checks": [
+        "receipt_accepted",
+        "leaf_accepted",
+        "validator_accepted"
+      ],
+      "detail": "the verifier seam accepts the corpus triples when given a stub that recognizes exactly them (a test device: proves the seam, not any sr25519 signature)",
+      "id": "signature_seam.stub_verifier",
+      "result": "ok"
+    }
+  ]
+}

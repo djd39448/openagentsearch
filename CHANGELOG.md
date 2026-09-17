@@ -84,6 +84,22 @@ package publication, or hosted release exists.
   `k` optional `1..50` default `10` reusing `/search`'s rule) answers `400 {"error": "<code>",
   "field": "<param>"}` for the first problem found, in that order. Rate-limited and
   `HEAD`/`POST`-handled exactly like `/search`. See [docs/api.md](./docs/api.md).
+- `scripts/make_wire_conformance_report.py` (package D4a): a committed, byte-deterministic
+  conformance report (`tests/fixtures/flop/wire-format-v1-report.json`) reproducing every check
+  `tests/test_flop_wire_corpus.py` performs against the public `wire-format-v1.json` corpus --
+  positive `vectors`, all 14 `negative_cases`, and a `summary` -- so a third party can diff their
+  own run against ours without re-deriving anything (`retardio73-boop/flop-conformance-lab`'s #58
+  checklist: exact script, full output, pinned upstream commit, sha256s, regenerate command, all
+  in one file). The three cases whose expected outcome is a signature verdict
+  (`invalid_receipt_signature`, `invalid_validator_signature`, `legacy_receipt_current_channel`)
+  are always `not_verifiable` (this package has no sr25519 implementation; the corpus test's own rejection
+  proof uses an injected `StubVerifier`, a test device this report never treats as cryptographic
+  evidence); `wrong_path_orientation` is reported `not_rejected` and mirrored into a top-level
+  `deviations` array, per the known upstream corpus defect (`flop-labs/yellowpaper#44`). Stdlib
+  only, no network, `sort_keys=True`/`indent=2`/LF-terminated output -- no timestamps, no absolute
+  paths. `tests/test_wire_conformance_report.py` pins the committed file against a fresh subprocess
+  run and checks the summary counts, the corpus sha256, and negative-case id parity. See
+  [docs/flop-wire.md](./docs/flop-wire.md#conformance-report).
 
 ## 0.2.0 - 2026-09-16
 

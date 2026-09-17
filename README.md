@@ -77,6 +77,12 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   `ValidatorAttestation`, verified against the public `wire-format-v1.json` corpus; signature
   checks report `not_verified` without an injected sr25519 verifier (none exists in the Python
   standard library). See [docs/flop-wire.md](./docs/flop-wire.md).
+- a committed, byte-deterministic wire-corpus conformance report
+  (`tests/fixtures/flop/wire-format-v1-report.json`,
+  `scripts/make_wire_conformance_report.py --corpus tests/fixtures/flop/wire-format-v1.json --out
+  PATH`): every check `tests/test_flop_wire_corpus.py` performs against the corpus above, in one
+  file a third party can diff their own run against, per `retardio73-boop/flop-conformance-lab`'s
+  #58 checklist. See [docs/flop-wire.md](./docs/flop-wire.md#conformance-report).
 - a technocore.chat message log (`openagentsearch.sources.technocore_messages`, poller
   `bin/message_log.py`): forward-only, bounded, resumable per-room message polling
   (`seq`/`ts`/`from`/`text`/`sig`/`nonce`), with a `RoomMessagesAdapter` turning logged messages
