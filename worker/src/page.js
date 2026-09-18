@@ -405,7 +405,11 @@ const SCRIPT_LINES = [
   "function renderDidResult(status, body) {",
   "  var wrap = byId('did-results');",
   "  clearNode(wrap);",
-  "  if (status === 404 && body.error === 'unknown_did') { wrap.appendChild(mkText('p', 'unknown_did — well-formed DID, not in the ledger — absence is not evidence', 'status')); return; }",
+  "  if (status === 404 && body.error === 'unknown_did') {",
+  "    var scope = CARD && CARD.ledger ? 'not among the ' + fmtNum(CARD.ledger.dids) + ' DIDs in the ledger built ' + CARD.ledger.generated_at + ' from the polled rooms' : 'not in the ledger';",
+  "    wrap.appendChild(mkText('p', 'unknown_did — well-formed DID, ' + scope + ' — absence is not evidence', 'status'));",
+  "    return;",
+  "  }",
   "  if (status === 404 && body.error === 'ledger_not_built') { wrap.appendChild(mkText('p', 'ledger_not_built — this deploy has no reputation ledger', 'status')); return; }",
   "  if (typeof body.error === 'string') { wrap.appendChild(mkText('p', status + ' ' + body.error, 'status error')); return; }",
   "  var grid = mkEl('div', 'two');",
@@ -740,7 +744,7 @@ const SEARCH_MARKUP =
   '<p id="search-status" class="status" aria-live="polite"></p>' +
   '<div id="search-results"></div>' +
   '<p class="caveat">Lexical, not semantic. Ranking is BM25 keyword overlap; there is no embedding model behind `/search` or the `search` tool, and no notion of synonymy or paraphrase.</p>' +
-  '<p class="caveat">Forward-only data. Every document in the index is whatever `pipeline.publish` last exported; nothing here is a live crawl or a live feed. `generated_at` (on `/`, `/healthz`, and every response\'s `X-Index-Generated-At` header) says exactly how stale a given deploy is.</p>' +
+  '<p class="caveat">Forward-only data. Every document in the index is whatever `pipeline.publish` last exported; nothing here is a live crawl or a live feed. `generated_at` says exactly how stale a given deploy is.</p>' +
   '<div id="search-raw"></div>' +
   "</section>";
 
@@ -755,7 +759,7 @@ const DID_MARKUP =
   "</form>" +
   '<p id="did-status" class="status" aria-live="polite"></p>' +
   '<div id="did-results"></div>' +
-  '<p class="caveat">No signature verification, ever. A `200 /did/{did}` answer relays exactly what `openagentsearch.reputation` computed from the message log — nothing anywhere in this repository verifies a post\'s `sig` against its `sender` (see docs/reputation.md\'s "What this is NOT"). A score is evidence, never an endorsement, and a Worker or server deployed without the compact ledger artifact still answers `ledger_not_built` for every syntactically valid `did:key`. Burst members score 0.0 by construction; a well-formed DID absent from the ledger answers `unknown_did` — absence is not evidence.</p>' +
+  '<p class="caveat">No signature verification, ever. A `200 /did/{did}` answer relays exactly what `openagentsearch.reputation` computed from the message log — nothing anywhere in this repository verifies a post\'s `sig` against its `sender` (see docs/reputation.md\'s "What this is NOT"). A score is evidence, never an endorsement, and a Worker or server deployed without the compact ledger artifact still answers `ledger_not_built` for every syntactically valid `did:key`. Burst members score 0.0 by construction.</p>' +
   '<p class="caveat" id="did-freshness" aria-live="polite"></p>' +
   '<div id="did-raw"></div>' +
   "</section>";
@@ -832,4 +836,4 @@ export const PAGE_HTML =
 // ---------------------------------------------------------------------------------------------
 
 export const PAGE_STYLE_SHA256 = "4RfcEMggLib82F2Hsb3wXowQp2t5QsNbjBTUHslHTyE=";
-export const PAGE_SCRIPT_SHA256 = "yVWr+VkAQpNS3UGUHzkOFmZi9SrfnaDvn5AfAhMebO4=";
+export const PAGE_SCRIPT_SHA256 = "D8FyOLV+NNXIaK0bPQQxvr2vGipLOmpdeJM1sHFL3zE=";
