@@ -40,7 +40,7 @@ MANIFEST_OK: dict[str, Any] = {
     "documents": [],
 }
 
-TOOLS_LIST_OK = ["did_lookup", "index_info", "route", "search"]
+TOOLS_LIST_OK = ["did_lookup", "index_info", "liveness", "route", "search"]
 
 # Package B2 -- --ledger fixtures. OUR_DID matches scripts/verify_public.py's own OUR_DID.
 OUR_DID = "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf"
@@ -70,6 +70,44 @@ DID_BODY_OK: dict[str, Any] = {
     "provenance": {},
 }
 
+# Package LM3 -- --liveness fixtures.
+LOCAL_LIVENESS_OK: dict[str, Any] = {
+    "schema": "openagentsearch.liveness-compact/1",
+    "generated_at": "2026-03-03T00:00:00Z",
+    "window_days": 7,
+    "log_rows": 260,
+    "ledger_generated_at": "2026-03-03T00:00:00Z",
+    "method": {"room_table": []},
+    "rooms": {"alpha": {"class": "live"}, "bravo": {"class": "quiet"}},
+    "counts": {
+        "rooms_by_class": {"live": 1, "quiet": 1},
+        "agents_by_tier": {"weak": 2},
+    },
+    "agents": {"did:key:zAgentOne00": [], "did:key:zAgentTwo00": []},
+}
+
+HEALTHZ_WITH_LIVENESS_OK: dict[str, Any] = {
+    **HEALTHZ_OK,
+    "liveness": {
+        "rooms": 2,
+        "agents": 2,
+        "rooms_by_class": {"live": 1, "quiet": 1},
+        "agents_by_tier": {"weak": 2},
+        "generated_at": "2026-03-03T00:00:00Z",
+    },
+}
+
+LIVENESS_ROUTE_BODY_OK: dict[str, Any] = {
+    "schema": LOCAL_LIVENESS_OK["schema"],
+    "generated_at": LOCAL_LIVENESS_OK["generated_at"],
+    "window_days": LOCAL_LIVENESS_OK["window_days"],
+    "log_rows": LOCAL_LIVENESS_OK["log_rows"],
+    "ledger_generated_at": LOCAL_LIVENESS_OK["ledger_generated_at"],
+    "counts": LOCAL_LIVENESS_OK["counts"],
+    "method": LOCAL_LIVENESS_OK["method"],
+    "rooms": LOCAL_LIVENESS_OK["rooms"],
+}
+
 
 def _rpc_ok(request_id: int, result: dict[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
@@ -84,6 +122,8 @@ def _make_handler(
     mcp_responder: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     did_status: int = 200,
     did_body: dict[str, Any] | None = None,
+    liveness_status: int = 200,
+    liveness_body: dict[str, Any] | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     resolved_healthz_body: bytes = (
         healthz_body if healthz_body is not None else json.dumps(HEALTHZ_OK).encode("utf-8")
@@ -91,6 +131,9 @@ def _make_handler(
     resolved_did_body: bytes = json.dumps(did_body if did_body is not None else {}).encode(
         "utf-8"
     )
+    resolved_liveness_body: bytes = json.dumps(
+        liveness_body if liveness_body is not None else LIVENESS_ROUTE_BODY_OK
+    ).encode("utf-8")
 
     def default_mcp_responder(message: dict[str, Any]) -> dict[str, Any]:
         if message.get("method") == "initialize":
@@ -137,6 +180,12 @@ def _make_handler(
                 self.end_headers()
                 self.wfile.write(resolved_did_body)
                 return
+            if self.path == "/liveness":
+                self.send_response(liveness_status)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(resolved_liveness_body)
+                return
             self.send_response(404)
             self.end_headers()
 
@@ -182,13 +231,19 @@ class _Server:
 
 
 def _run(
-    base_url: str, manifest_path: Path, *, ledger_path: Path | None = None
+    base_url: str,
+    manifest_path: Path,
+    *,
+    ledger_path: Path | None = None,
+    liveness_path: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     argv = [
         sys.executable, str(SCRIPT), base_url, "--manifest", str(manifest_path), "--timeout", "5",
     ]
     if ledger_path is not None:
         argv += ["--ledger", str(ledger_path)]
+    if liveness_path is not None:
+        argv += ["--liveness", str(liveness_path)]
     return subprocess.run(
         argv,
         capture_output=True,
@@ -207,6 +262,12 @@ def _write_manifest(tmp_path: Path, manifest: dict[str, Any] = MANIFEST_OK) -> P
 def _write_ledger(tmp_path: Path, ledger: dict[str, Any] = LOCAL_LEDGER_OK) -> Path:
     path = tmp_path / "ledger-compact.json"
     path.write_text(json.dumps(ledger), encoding="utf-8")
+    return path
+
+
+def _write_liveness(tmp_path: Path, liveness: dict[str, Any] = LOCAL_LIVENESS_OK) -> Path:
+    path = tmp_path / "liveness-compact.json"
+    path.write_text(json.dumps(liveness), encoding="utf-8")
     return path
 
 
@@ -487,3 +548,115 @@ def test_no_ledger_flag_skips_ledger_checks(tmp_path: Path) -> None:
     report = json.loads(proc.stdout)
     assert "ledger_dids" not in report
     assert "first_seen_seq" not in report
+
+
+# --- Package LM3: --liveness ------------------------------------------------------------------
+
+
+def test_liveness_match_exits_0(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    liveness_path = _write_liveness(tmp_path)
+    handler = _make_handler(healthz_body=json.dumps(HEALTHZ_WITH_LIVENESS_OK).encode("utf-8"))
+    with _Server(handler) as server:
+        proc = _run(server.base_url, manifest_path, liveness_path=liveness_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout)
+    assert report["ok"] is True
+    assert report["liveness_rooms"] == 2
+    assert report["liveness_agents"] == 2
+    assert report["liveness_generated_at"] == "2026-03-03T00:00:00Z"
+
+
+def test_liveness_generated_at_mismatch_exits_1(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    liveness_path = _write_liveness(tmp_path)
+    bad_healthz = {
+        **HEALTHZ_WITH_LIVENESS_OK,
+        "liveness": {**HEALTHZ_WITH_LIVENESS_OK["liveness"], "generated_at": "2099-01-01T00:00:00Z"},
+    }
+    handler = _make_handler(healthz_body=json.dumps(bad_healthz).encode("utf-8"))
+    with _Server(handler) as server:
+        proc = _run(server.base_url, manifest_path, liveness_path=liveness_path)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout)
+    assert report["ok"] is False
+    assert "liveness generated_at mismatch" in report["reason"]
+
+
+def test_liveness_rooms_mismatch_exits_1(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    liveness_path = _write_liveness(tmp_path)
+    bad_healthz = {
+        **HEALTHZ_WITH_LIVENESS_OK,
+        "liveness": {**HEALTHZ_WITH_LIVENESS_OK["liveness"], "rooms": 999},
+    }
+    handler = _make_handler(healthz_body=json.dumps(bad_healthz).encode("utf-8"))
+    with _Server(handler) as server:
+        proc = _run(server.base_url, manifest_path, liveness_path=liveness_path)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout)
+    assert "liveness rooms mismatch" in report["reason"]
+
+
+def test_liveness_agents_mismatch_exits_1(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    liveness_path = _write_liveness(tmp_path)
+    bad_healthz = {
+        **HEALTHZ_WITH_LIVENESS_OK,
+        "liveness": {**HEALTHZ_WITH_LIVENESS_OK["liveness"], "agents": 999},
+    }
+    handler = _make_handler(healthz_body=json.dumps(bad_healthz).encode("utf-8"))
+    with _Server(handler) as server:
+        proc = _run(server.base_url, manifest_path, liveness_path=liveness_path)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout)
+    assert "liveness agents mismatch" in report["reason"]
+
+
+def test_liveness_counts_mismatch_exits_1(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    liveness_path = _write_liveness(tmp_path)
+    bad_liveness_route_body = {**LIVENESS_ROUTE_BODY_OK, "counts": {"rooms_by_class": {"live": 999}}}
+    handler = _make_handler(
+        healthz_body=json.dumps(HEALTHZ_WITH_LIVENESS_OK).encode("utf-8"),
+        liveness_body=bad_liveness_route_body,
+    )
+    with _Server(handler) as server:
+        proc = _run(server.base_url, manifest_path, liveness_path=liveness_path)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout)
+    assert "liveness counts mismatch" in report["reason"]
+
+
+def test_liveness_missing_local_file_exits_1(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    missing_liveness_path = tmp_path / "does-not-exist.json"
+    handler = _make_handler(healthz_body=json.dumps(HEALTHZ_WITH_LIVENESS_OK).encode("utf-8"))
+    with _Server(handler) as server:
+        proc = _run(server.base_url, manifest_path, liveness_path=missing_liveness_path)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout)
+    assert "cannot read liveness map" in report["reason"]
+
+
+def test_liveness_missing_healthz_object_exits_1(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    liveness_path = _write_liveness(tmp_path)
+    # healthz has no "liveness" key at all -- a Worker built without a compact map.
+    handler = _make_handler(healthz_body=json.dumps(HEALTHZ_OK).encode("utf-8"))
+    with _Server(handler) as server:
+        proc = _run(server.base_url, manifest_path, liveness_path=liveness_path)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout)
+    assert "no liveness object" in report["reason"]
+
+
+def test_no_liveness_flag_skips_liveness_checks(tmp_path: Path) -> None:
+    # --liveness omitted, healthz has no "liveness" key at all -- verify() never looks for one.
+    manifest_path = _write_manifest(tmp_path)
+    with _Server(_make_handler()) as server:
+        proc = _run(server.base_url, manifest_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout)
+    assert "liveness_rooms" not in report
+    assert "liveness_generated_at" not in report

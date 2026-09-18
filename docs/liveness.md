@@ -222,9 +222,12 @@ never `candidates`). `sampled_senders` is a lower bound from a bounded sample, n
 On the 2026-09-18 directory, 510 rooms qualified before the cap. `liveness-compact.json`
 (schema `openagentsearch.liveness-compact/1`): `schema`, `generated_at`, `window_days`,
 `log_rows`, `ledger_generated_at`, `method` (verbatim), `rooms` (verbatim), `counts` (verbatim),
-`agents`: `{did: [tier, points, rooms_count, reply_in, reply_out, work_cycles, template_rows,
-faucet_onboarding_rows, github_contrib_rows, did_note_present(0/1), post_count, unsigned_rows]}` --
-a fixed 12-element array; `load_compact_liveness` refuses any other length.
+`agents`: `{did: [tier, points, rooms_count, live_rooms_count, reply_in, reply_in_nonburst,
+reply_out, work_cycles, template_rows, faucet_onboarding_rows, github_contrib_rows,
+did_note_present(0/1), post_count, unsigned_rows, distinct_text_ratio, age_days]}` -- a fixed
+16-element array holding every value the points table reads (so a reader of the compact artifact
+can recompute the tier and put a number beside every marker) plus `unsigned_rows`;
+`load_compact_liveness` refuses any other length.
 
 Both `write_liveness`/`write_compact_liveness` are atomic (temp file + `os.replace`) and refuse an
 oversize artifact BEFORE creating any file (`DEFAULT_MAX_BYTES` = 32 MiB,
@@ -269,6 +272,20 @@ python -m openagentsearch.liveness.build --log-root DIR --ledger did-ledger.json
 The fixture replay in `tests/test_liveness_build.py` regenerates
 `tests/fixtures/liveness/liveness-v1.expected.json`/`liveness-compact.expected.json` with exactly
 these two commands (see that file's module docstring for the exact fixture root and `--now`).
+
+## Served live
+
+Package LM3 serves `liveness-compact.json` over the public Cloudflare Worker (`worker/`, see
+[docs/api.md](./api.md)) next to the reputation ledger it already bundles: `GET /liveness` (the
+map minus `agents`), `GET /liveness/room/{room}` (one room's `class`/`class_all`/`signals`/
+`decided_on`/`facts`), `GET /liveness/agent/{did}` (one agent's `tier`/`points`/`signals`/
+`thresholds`, the compact array mapped by position), and the `liveness` MCP tool answering the
+exact same bodies (`room`/`did` mutually exclusive, `isError: true one_of_room_or_did` for both).
+A Worker built without the artifact fails closed with `404 {"error": "liveness_not_built"}` on
+every route and the same code from the tool, never a guess. The inspector page's fifth panel
+("05 Map") is a browser client of these same routes -- an overview with a room table, a one-room
+lookup, and a DID lookup rendering every signal beside its rule and points from
+`thresholds.agent_points`.
 
 ## What this is NOT
 

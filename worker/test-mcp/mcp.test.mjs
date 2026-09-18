@@ -41,6 +41,17 @@ const OFFER_SHAPE = JSON.parse(
 const NON_BURST_DID = Object.keys(LEDGER.non_burst).sort()[0];
 const BURST_DID = Object.keys(LEDGER.burst)[0];
 const UNKNOWN_DID = "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf";
+// Package LM3: the LM1-committed liveness-compact fixture, the same one
+// `worker/test/liveness.test.mjs` (plain Node) loads -- used only by the `liveness` tests below;
+// every other test in this file omits it (liveness stays `null`).
+const LIVENESS = JSON.parse(
+  readFileSync(
+    path.join(REPO_ROOT, "tests", "fixtures", "liveness", "liveness-compact.expected.json"),
+    "utf-8",
+  ),
+);
+const KNOWN_ROOM = "contrib-like";
+const KNOWN_LIVENESS_DID = Object.keys(LIVENESS.agents).sort()[0];
 
 const HOST = "openagentsearch.example.workers.dev";
 const BASE = `https://${HOST}`;
@@ -84,8 +95,15 @@ async function readRpcMessage(res) {
  * @returns {Promise<Response>}
  */
 async function postMcp(body, opts = {}) {
-  const { env = ALWAYS_ALLOW, headers = {}, method = "POST", ledger = null, offerShape = null } = opts;
-  const worker = makeWorker(INDEX, ledger, offerShape);
+  const {
+    env = ALWAYS_ALLOW,
+    headers = {},
+    method = "POST",
+    ledger = null,
+    offerShape = null,
+    liveness = null,
+  } = opts;
+  const worker = makeWorker(INDEX, ledger, offerShape, liveness);
   const request = new Request(`${BASE}/mcp`, {
     method,
     headers: {
@@ -121,13 +139,13 @@ test("initialize echoes the protocol version and reports serverInfo.name", async
 
 // --- tools/list --------------------------------------------------------------------------
 
-test("tools/list lists exactly search, did_lookup, index_info with the documented schemas", async () => {
+test("tools/list lists exactly search, did_lookup, index_info, route, liveness with the documented schemas", async () => {
   const res = await postMcp(rpc("tools/list", {}));
   const message = await readRpcMessage(res);
   const tools = message.result.tools;
   assert.deepEqual(
     tools.map((t) => t.name).sort(),
-    ["did_lookup", "index_info", "route", "search"],
+    ["did_lookup", "index_info", "liveness", "route", "search"],
   );
 
   const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
@@ -154,6 +172,16 @@ test("tools/list lists exactly search, did_lookup, index_info with the documente
   assert.equal(byName.did_lookup.inputSchema.properties.did.maxLength, 200);
 
   assert.deepEqual(Object.keys(byName.index_info.inputSchema.properties || {}), []);
+
+  assert.deepEqual(Object.keys(byName.liveness.inputSchema.properties).sort(), ["did", "room"]);
+  assert.equal(byName.liveness.inputSchema.required, undefined); // both optional
+  assert.equal(byName.liveness.inputSchema.properties.room.type, "string");
+  assert.equal(byName.liveness.inputSchema.properties.room.pattern, undefined);
+  assert.equal(byName.liveness.inputSchema.properties.room.minLength, 1);
+  assert.equal(byName.liveness.inputSchema.properties.room.maxLength, 128);
+  assert.equal(byName.liveness.inputSchema.properties.did.type, "string");
+  assert.equal(byName.liveness.inputSchema.properties.did.minLength, 1);
+  assert.equal(byName.liveness.inputSchema.properties.did.maxLength, 200);
 });
 
 // --- tools/call search ---------------------------------------------------------------------
@@ -323,6 +351,120 @@ test("tools/call route rejects a model_hash outside the alphabet with the app-le
     error: "invalid_model_hash",
     field: "model_hash",
   });
+});
+
+// --- tools/call liveness (package LM3) -----------------------------------------------------
+
+test("tools/call liveness with no arguments matches GET /liveness exactly (route parity)", async () => {
+  const mcpRes = await postMcp(rpc("tools/call", { name: "liveness", arguments: {} }), {
+    liveness: LIVENESS,
+  });
+  const message = await readRpcMessage(mcpRes);
+  assert.notEqual(message.result.isError, true);
+  const mcpBody = JSON.parse(message.result.content[0].text);
+
+  const jsonWorker = makeJsonWorker(INDEX, null, null, LIVENESS);
+  const routeRes = await jsonWorker.fetch(new Request(`${BASE}/liveness`, { method: "GET" }), ALWAYS_ALLOW);
+  assert.equal(routeRes.status, 200);
+  const routeBody = await routeRes.json();
+
+  assert.deepEqual(mcpBody, routeBody);
+  assert.equal(mcpBody.agents, undefined);
+});
+
+test("tools/call liveness with room matches GET /liveness/room/{room} exactly (route parity)", async () => {
+  const mcpRes = await postMcp(
+    rpc("tools/call", { name: "liveness", arguments: { room: KNOWN_ROOM } }),
+    { liveness: LIVENESS },
+  );
+  const message = await readRpcMessage(mcpRes);
+  assert.equal(message.result.isError, false);
+  const mcpBody = JSON.parse(message.result.content[0].text);
+
+  const jsonWorker = makeJsonWorker(INDEX, null, null, LIVENESS);
+  const routeRes = await jsonWorker.fetch(
+    new Request(`${BASE}/liveness/room/${KNOWN_ROOM}`, { method: "GET" }),
+    ALWAYS_ALLOW,
+  );
+  assert.equal(routeRes.status, 200);
+  assert.deepEqual(mcpBody, await routeRes.json());
+});
+
+test("tools/call liveness with did matches GET /liveness/agent/{did} exactly (route parity)", async () => {
+  const mcpRes = await postMcp(
+    rpc("tools/call", { name: "liveness", arguments: { did: KNOWN_LIVENESS_DID } }),
+    { liveness: LIVENESS },
+  );
+  const message = await readRpcMessage(mcpRes);
+  assert.equal(message.result.isError, false);
+  const mcpBody = JSON.parse(message.result.content[0].text);
+
+  const jsonWorker = makeJsonWorker(INDEX, null, null, LIVENESS);
+  const routeRes = await jsonWorker.fetch(
+    new Request(`${BASE}/liveness/agent/${encodeURIComponent(KNOWN_LIVENESS_DID)}`, { method: "GET" }),
+    ALWAYS_ALLOW,
+  );
+  assert.equal(routeRes.status, 200);
+  assert.deepEqual(mcpBody, await routeRes.json());
+});
+
+test("tools/call liveness with both room and did is isError:true one_of_room_or_did, checked before any lookup", async () => {
+  const res = await postMcp(
+    rpc("tools/call", { name: "liveness", arguments: { room: "not-a-real-room", did: "not-a-did" } }),
+    { liveness: LIVENESS },
+  );
+  const message = await readRpcMessage(res);
+  assert.equal(message.result.isError, true);
+  assert.deepEqual(JSON.parse(message.result.content[0].text), { error: "one_of_room_or_did" });
+});
+
+test("tools/call liveness rejects a malformed room/did with the app-level body, not a schema error", async () => {
+  const roomRes = await postMcp(
+    rpc("tools/call", { name: "liveness", arguments: { room: "has space" } }),
+    { liveness: LIVENESS },
+  );
+  const roomMessage = await readRpcMessage(roomRes);
+  assert.equal(roomMessage.result.isError, true);
+  assert.deepEqual(JSON.parse(roomMessage.result.content[0].text), { error: "invalid_room" });
+
+  const didRes = await postMcp(
+    rpc("tools/call", { name: "liveness", arguments: { did: "not-a-valid-did" } }),
+    { liveness: LIVENESS },
+  );
+  const didMessage = await readRpcMessage(didRes);
+  assert.equal(didMessage.result.isError, true);
+  assert.deepEqual(JSON.parse(didMessage.result.content[0].text), { error: "invalid_did" });
+});
+
+test("tools/call liveness answers the app-level unknown_room/unknown_agent bodies", async () => {
+  const roomRes = await postMcp(
+    rpc("tools/call", { name: "liveness", arguments: { room: "never-polled-room" } }),
+    { liveness: LIVENESS },
+  );
+  const roomMessage = await readRpcMessage(roomRes);
+  assert.equal(roomMessage.result.isError, true);
+  assert.deepEqual(JSON.parse(roomMessage.result.content[0].text), { error: "unknown_room" });
+
+  const didRes = await postMcp(
+    rpc("tools/call", { name: "liveness", arguments: { did: UNKNOWN_DID } }),
+    { liveness: LIVENESS },
+  );
+  const didMessage = await readRpcMessage(didRes);
+  assert.equal(didMessage.result.isError, true);
+  assert.deepEqual(JSON.parse(didMessage.result.content[0].text), { error: "unknown_agent" });
+});
+
+test("tools/call liveness answers isError:true liveness_not_built when built without the map (no args / room / did)", async () => {
+  for (const args of [{}, { room: KNOWN_ROOM }, { did: KNOWN_LIVENESS_DID }]) {
+    const res = await postMcp(rpc("tools/call", { name: "liveness", arguments: args }));
+    const message = await readRpcMessage(res);
+    assert.equal(message.result.isError, true, JSON.stringify(args));
+    assert.deepEqual(
+      JSON.parse(message.result.content[0].text),
+      { error: "liveness_not_built" },
+      JSON.stringify(args),
+    );
+  }
 });
 
 // --- tools/call index_info ------------------------------------------------------------------

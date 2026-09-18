@@ -86,6 +86,23 @@ package publication, or hosted release exists.
   `candidates`). `CANDIDATE_MIN_SAMPLED_SENDERS`/`CANDIDATE_MAX` and a `candidates_rule` are
   published in `method`; `load_liveness` refuses a shapeless candidate; the report line gains a
   `candidates` count. See [docs/liveness.md](./docs/liveness.md#the-artifacts).
+- package LM3 -- the Worker serves the liveness map live: `GET /liveness` (the compact map minus
+  `agents`), `GET /liveness/room/{room}` (`400 invalid_room`/`404 unknown_room`), `GET
+  /liveness/agent/{did}` (`400 invalid_did`/`404 unknown_agent`, the compact agent array mapped
+  by position, `thresholds` copied from `method`), and a `liveness` MCP tool answering the same
+  three bodies (`room`/`did` mutually exclusive -- `isError: true one_of_room_or_did` for both). A
+  Worker built without the artifact fails closed (`404`/`isError: true` `liveness_not_built`) on
+  every `/liveness*` request, matching the `ledger_not_built` convention; `x-liveness-generated-at`
+  on every response whenever a map is loaded. The service card gains `liveness:
+  {rooms, agents, generated_at} | null` after `ledger`; `GET /healthz` gains `liveness:
+  {rooms, agents, rooms_by_class, agents_by_tier, generated_at} | null`. The inspector page gains a
+  fifth panel, "05 Map" (`worker/src/page.js`, byte budget raised to 57,344): overview stat cards
+  and a class-filterable room table from `GET /liveness`, a one-room `decided_on` view, a DID
+  lookup rendering every signal beside its rule and points from `thresholds.agent_points`, the raw
+  `method` in a `<details>`, and `#map`/`#map?room=`/`#map?did=` deep links; the DID panel (02)
+  gains a link to a DID's liveness tier. `scripts/verify_public.py` gains `--liveness PATH`
+  (`EXPECTED_TOOLS` gains `liveness`). See [docs/liveness.md](./docs/liveness.md#served-live) and
+  [docs/api.md](./docs/api.md).
 
 ## 0.3.0 - 2026-09-17
 

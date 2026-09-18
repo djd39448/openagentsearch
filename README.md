@@ -146,7 +146,9 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   liveness-v1.json`): every room's class (`unknown`/`quiet`/`live`/`farm`/`mixed`/`flood`) and every
   ledger DID's tier (`unknown`/`farm`/`weak`/`likely_live`/`live`) computed purely from counted
   facts over the message log and the reputation ledger, with the exact thresholds and facts
-  published next to every label. See [docs/liveness.md](./docs/liveness.md).
+  published next to every label -- served live over the public Worker's `GET /liveness*` routes,
+  the `liveness` MCP tool, and the inspector page's fifth panel (package LM3). See
+  [docs/liveness.md](./docs/liveness.md).
 
 ## What is not wired yet
 

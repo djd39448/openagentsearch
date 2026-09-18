@@ -10,7 +10,13 @@ live `/healthz`'s `ledger.dids` and `ledger.generated_at` must match the local f
 `generated_at`, and `GET BASE_URL/did/<OUR_DID>` must answer `200` with the same `facts.
 first_seen_seq` the local file records for that DID -- the B2 done-when in BUILDSPEC §3.
 
-Usage: python scripts/verify_public.py BASE_URL --manifest PATH [--ledger PATH] [--timeout 20]
+`--liveness PATH` (optional, package LM3) additionally checks the deployed liveness map against a
+local compact artifact (`openagentsearch.liveness.build`'s `liveness-compact.json`): the live
+`/healthz`'s `liveness.generated_at` must match the local file's own `generated_at`, `liveness.
+rooms`/`liveness.agents` must match the local file's own room/agent counts, and
+`GET BASE_URL/liveness` must answer `200` with the same `counts` object the local file carries.
+
+Usage: python scripts/verify_public.py BASE_URL --manifest PATH [--ledger PATH] [--liveness PATH] [--timeout 20]
 
 Prints exactly one compact JSON line to stdout. Exit `0` on a full match, `1` on the first mismatch
 found (the printed line names it under `"reason"`), `2` on a bad argument (before any network
@@ -38,7 +44,7 @@ MAX_BODY_BYTES = 1_000_000
 # `Python-urllib/x.y` User-Agent; any explicit value passes. Every request here sends this one.
 USER_AGENT = "OpenAgentSearch-verify/1.0"
 DEFAULT_TIMEOUT_S = 20.0
-EXPECTED_TOOLS = ("did_lookup", "index_info", "route", "search")
+EXPECTED_TOOLS = ("did_lookup", "index_info", "liveness", "route", "search")
 # The project's own DID -- present (non-burst) on the live 2026-09-16 log; the same identity
 # docs/agent-api.md's did_lookup example and worker/test/router.test.mjs already reference.
 OUR_DID = "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf"
@@ -202,6 +208,26 @@ def _load_local_ledger(ledger_path: str) -> dict[str, Any]:
     return parsed
 
 
+def _load_local_liveness(liveness_path: str) -> dict[str, Any]:
+    """Loads `liveness_path` (a local `liveness-compact.json`) as a plain JSON object -- this
+    script deliberately never imports `openagentsearch.liveness.build`, so it keeps working with
+    no `PYTHONPATH` set, exactly like `_load_local_ledger` above; it only reads the handful of
+    fields it needs (`generated_at`, `rooms`, `agents`, `counts`), not the full typed/validated
+    shape `build.load_compact_liveness` enforces."""
+    try:
+        with open(liveness_path, "rb") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        raise VerifyError(f"cannot read liveness map {liveness_path}: {exc}") from exc
+    try:
+        parsed: Any = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise VerifyError(f"liveness map {liveness_path} is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise VerifyError(f"liveness map {liveness_path} is not a JSON object")
+    return parsed
+
+
 def _local_ledger_first_seen_seq(ledger: dict[str, Any], did: str, ledger_path: str) -> int:
     non_burst = ledger.get("non_burst")
     if isinstance(non_burst, dict):
@@ -219,10 +245,12 @@ def verify(
     *,
     timeout: float = DEFAULT_TIMEOUT_S,
     ledger_path: str | None = None,
+    liveness_path: str | None = None,
 ) -> dict[str, Any]:
     """Runs the full check against `base_url`, raising `VerifyError` naming the first mismatch
     found. Returns a report `dict` (the one printed as JSON) on success. `ledger_path`, when
-    given, additionally runs the package B2 ledger checks described in the module docstring."""
+    given, additionally runs the package B2 ledger checks described in the module docstring;
+    `liveness_path`, when given, additionally runs the package LM3 liveness checks."""
     base_url = base_url.rstrip("/")
 
     manifest = _load_manifest(manifest_path)
@@ -339,6 +367,51 @@ def verify(
         report["ledger_generated_at"] = local_generated_at
         report["first_seen_seq"] = local_first_seen_seq
 
+    if liveness_path is not None:
+        local_liveness = _load_local_liveness(liveness_path)
+        local_rooms = local_liveness.get("rooms")
+        local_agents = local_liveness.get("agents")
+        local_liveness_generated_at = local_liveness.get("generated_at")
+        local_counts = local_liveness.get("counts")
+        if not isinstance(local_rooms, dict):
+            raise VerifyError(f"liveness map {liveness_path} has no rooms object")
+        if not isinstance(local_agents, dict):
+            raise VerifyError(f"liveness map {liveness_path} has no agents object")
+        if not isinstance(local_liveness_generated_at, str):
+            raise VerifyError(f"liveness map {liveness_path} has no string generated_at")
+        if not isinstance(local_counts, dict):
+            raise VerifyError(f"liveness map {liveness_path} has no counts object")
+        local_rooms_count = len(local_rooms)
+        local_agents_count = len(local_agents)
+
+        live_liveness = healthz.get("liveness")
+        if not isinstance(live_liveness, dict):
+            raise VerifyError("/healthz response has no liveness object")
+        if live_liveness.get("generated_at") != local_liveness_generated_at:
+            raise VerifyError(
+                f"liveness generated_at mismatch: "
+                f"live={live_liveness.get('generated_at')!r} local={local_liveness_generated_at!r}"
+            )
+        if live_liveness.get("rooms") != local_rooms_count:
+            raise VerifyError(
+                f"liveness rooms mismatch: live={live_liveness.get('rooms')!r} local={local_rooms_count!r}"
+            )
+        if live_liveness.get("agents") != local_agents_count:
+            raise VerifyError(
+                f"liveness agents mismatch: live={live_liveness.get('agents')!r} local={local_agents_count!r}"
+            )
+
+        liveness_body = _http_get_json(f"{base_url}/liveness", timeout)
+        live_counts = liveness_body.get("counts")
+        if live_counts != local_counts:
+            raise VerifyError(
+                f"liveness counts mismatch: live={live_counts!r} local={local_counts!r}"
+            )
+
+        report["liveness_rooms"] = local_rooms_count
+        report["liveness_agents"] = local_agents_count
+        report["liveness_generated_at"] = local_liveness_generated_at
+
     return report
 
 
@@ -349,12 +422,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--ledger", default=None, help="optional: path to a local did-ledger-compact.json"
     )
+    parser.add_argument(
+        "--liveness", default=None, help="optional: path to a local liveness-compact.json"
+    )
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_S)
     args = parser.parse_args(argv)  # argparse itself exits 2 on a bad argument, 0 on --help
 
     try:
         report = verify(
-            args.base_url, args.manifest, timeout=args.timeout, ledger_path=args.ledger
+            args.base_url,
+            args.manifest,
+            timeout=args.timeout,
+            ledger_path=args.ledger,
+            liveness_path=args.liveness,
         )
     except VerifyError as exc:
         print(json.dumps({"ok": False, "reason": exc.reason}))

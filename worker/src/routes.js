@@ -41,6 +41,11 @@ export function knownKinds(index) {
  * matches `handoff/C1-DESIGN.md` §1's documented `/did/{did}` format. */
 export const DID_RE = /^did:key:z[1-9A-HJ-NP-Za-km-z]{1,120}$/;
 
+/** A room id (package LM3): 1-128 characters of `[A-Za-z0-9._-]` -- the message log's own
+ * room-id rule, reused verbatim for `GET /liveness/room/{room}` and the `liveness` MCP tool's
+ * `room` argument. */
+export const ROOM_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
+
 /** Base URL the `/index/*` routes redirect to -- the GitHub Pages copies documented in
  * `docs/static-index.md`. */
 export const STATIC_INDEX_BASE = "https://djd39448.github.io/openagentsearch";
@@ -85,13 +90,20 @@ const ROUTE_LIST = Object.freeze([
   "GET /search",
   "GET /did/{did}",
   "GET /route",
+  "GET /liveness",
+  "GET /liveness/room/{room}",
+  "GET /liveness/agent/{did}",
   "GET /index/manifest.json",
   "GET /index/flop-surface.jsonl",
   "GET /index/lexical-v1.json",
   "POST /mcp",
 ]);
 
-const TOOL_LIST = Object.freeze(["search", "did_lookup", "index_info", "route"]);
+const TOOL_LIST = Object.freeze(["search", "did_lookup", "index_info", "route", "liveness"]);
+
+// `/liveness*` (package LM3) -- same `Cache-Control: public, max-age=300` every other non-search
+// route uses.
+const LIVENESS_CACHE_SECONDS = 300;
 
 /**
  * The common header set every response carries, `Cache-Control` aside (passed by the caller,
@@ -329,6 +341,42 @@ function ledgerSummary(ledger) {
 }
 
 /**
+ * `{rooms, agents, generated_at}` for `liveness` (package LM3), or `null` when no compact
+ * liveness map was loaded -- the `GET /` service-card's own summary, deliberately smaller than
+ * {@link livenessHealthzSummary} (no per-class/per-tier breakdown on the card).
+ *
+ * @param {object | null} liveness a parsed `liveness-compact.json` document, or `null`
+ * @returns {{rooms: number, agents: number, generated_at: string} | null}
+ */
+function livenessCardSummary(liveness) {
+  if (liveness == null) return null;
+  return {
+    rooms: Object.keys(liveness.rooms).length,
+    agents: Object.keys(liveness.agents).length,
+    generated_at: liveness.generated_at,
+  };
+}
+
+/**
+ * `{rooms, agents, rooms_by_class, agents_by_tier, generated_at}` for `liveness` (package LM3),
+ * or `null` when no compact liveness map was loaded -- `GET /healthz`'s own summary; `rooms_by_class`/
+ * `agents_by_tier` are `liveness.counts.rooms_by_class`/`liveness.counts.agents_by_tier` verbatim.
+ *
+ * @param {object | null} liveness a parsed `liveness-compact.json` document, or `null`
+ * @returns {{rooms: number, agents: number, rooms_by_class: Record<string, number>, agents_by_tier: Record<string, number>, generated_at: string} | null}
+ */
+function livenessHealthzSummary(liveness) {
+  if (liveness == null) return null;
+  return {
+    rooms: Object.keys(liveness.rooms).length,
+    agents: Object.keys(liveness.agents).length,
+    rooms_by_class: liveness.counts.rooms_by_class,
+    agents_by_tier: liveness.counts.agents_by_tier,
+    generated_at: liveness.generated_at,
+  };
+}
+
+/**
  * The `GET /` service-card body: `handoff/C1-DESIGN.md` §1's "index `generated_at`, `db_sha256`,
  * counts by kind, route + tool list, links to `docs/api.md` and the static files", plus (package
  * B2) the reputation ledger's own counts.
@@ -342,9 +390,11 @@ function ledgerSummary(ledger) {
  * @param {string | null} [origin] the Worker's own origin (`new URL(request.url).origin`) -- when
  *   given, the card carries `inspector: "<origin>/"`, the same URL rendered for a browser (package
  *   UI1); omitted/`null` leaves the field out (a card built with no request in hand)
+ * @param {object | null} [liveness] a parsed `liveness-compact.json` document, or `null`/omitted
+ *   (package LM3)
  * @returns {object}
  */
-export function serviceCard(index, ledger = null, origin = null) {
+export function serviceCard(index, ledger = null, origin = null, liveness = null) {
   const card = {
     service: "openagentsearch",
     generated_at: index.generated_at,
@@ -357,6 +407,7 @@ export function serviceCard(index, ledger = null, origin = null) {
   };
   if (typeof origin === "string") card.inspector = `${origin}/`;
   card.ledger = ledgerSummary(ledger);
+  card.liveness = livenessCardSummary(liveness);
   return card;
 }
 
@@ -372,9 +423,11 @@ export function serviceCard(index, ledger = null, origin = null) {
  *
  * @param {object} index
  * @param {object | null} [ledger] a parsed `did-ledger-compact.json` document, or `null`/omitted
+ * @param {object | null} [liveness] a parsed `liveness-compact.json` document, or `null`/omitted
+ *   (package LM3)
  * @returns {object}
  */
-export function healthzBody(index, ledger = null) {
+export function healthzBody(index, ledger = null, liveness = null) {
   return {
     status: "ok",
     index: {
@@ -392,6 +445,7 @@ export function healthzBody(index, ledger = null) {
       postings: index.counts.postings,
     },
     ledger: ledgerSummary(ledger),
+    liveness: livenessHealthzSummary(liveness),
   };
 }
 
@@ -453,6 +507,149 @@ export function lookupDid(ledger, did) {
     };
   }
   return { status: 404, body: { error: "unknown_did" } };
+}
+
+/**
+ * The `GET /liveness` overview body (package LM3): the compact liveness map minus `agents`,
+ * field for field, in the documented order -- `rooms` verbatim (every room's `class`, `class_all`,
+ * `signals`, `decided_on`, `facts.window`, `facts.all`). Assumes `liveness` is already known
+ * non-`null` (the caller checks that first, the same convention {@link lookupDid} uses for
+ * `ledger`).
+ *
+ * @param {object} liveness a parsed `liveness-compact.json` document
+ * @returns {object}
+ */
+export function buildLivenessOverviewBody(liveness) {
+  return {
+    schema: liveness.schema,
+    generated_at: liveness.generated_at,
+    window_days: liveness.window_days,
+    log_rows: liveness.log_rows,
+    ledger_generated_at: liveness.ledger_generated_at,
+    counts: liveness.counts,
+    method: liveness.method,
+    rooms: liveness.rooms,
+  };
+}
+
+/**
+ * The provenance block every `/liveness/*` single-item answer carries (package LM3) -- the same
+ * five fields, whether the caller is `GET /liveness/room/{room}`, `GET /liveness/agent/{did}`, or
+ * the `liveness` MCP tool.
+ *
+ * @param {object} liveness a parsed `liveness-compact.json` document
+ * @returns {{liveness_generated_at: string, window_days: number, log_rows: number, ledger_generated_at: string, schema: string}}
+ */
+function livenessProvenance(liveness) {
+  return {
+    liveness_generated_at: liveness.generated_at,
+    window_days: liveness.window_days,
+    log_rows: liveness.log_rows,
+    ledger_generated_at: liveness.ledger_generated_at,
+    schema: liveness.schema,
+  };
+}
+
+/**
+ * The full `GET /liveness/room/{room}` answer for `room` (already validated against
+ * {@link ROOM_ID_RE} by the caller) -- `{status, body}`, the SAME shape whether reached from
+ * `GET /liveness/room/{room}` or the `liveness` MCP tool's `room` argument (`handoff/LM3-SPEC.md`
+ * §0's "one shape everywhere"). Assumes `liveness` is already known non-`null`.
+ *
+ * @param {object} liveness a parsed `liveness-compact.json` document
+ * @param {string} room already validated against {@link ROOM_ID_RE}
+ * @returns {{status: number, body: object}}
+ */
+export function lookupLivenessRoom(liveness, room) {
+  const row = liveness.rooms[room];
+  if (row === undefined) {
+    return { status: 404, body: { error: "unknown_room" } };
+  }
+  return {
+    status: 200,
+    body: {
+      room,
+      class: row.class,
+      class_all: row.class_all,
+      signals: row.signals,
+      decided_on: row.decided_on,
+      facts: row.facts,
+      provenance: livenessProvenance(liveness),
+    },
+  };
+}
+
+/**
+ * The full `GET /liveness/agent/{did}` answer for `did` (already validated against
+ * {@link DID_RE} by the caller) -- `{status, body}`, the SAME shape whether reached from
+ * `GET /liveness/agent/{did}` or the `liveness` MCP tool's `did` argument. Assumes `liveness` is
+ * already known non-`null`.
+ *
+ * The compact agent array is `[tier, points, rooms_count, live_rooms_count, reply_in,
+ * reply_in_nonburst, reply_out, work_cycles, template_rows, faucet_onboarding_rows,
+ * github_contrib_rows, did_note_present(0/1), post_count, unsigned_rows, distinct_text_ratio,
+ * age_days]` (`docs/liveness.md`, "The artifacts") -- mapped by position; `did_note_present`
+ * becomes a boolean. Every value the points table reads is in `signals`, so a reader can put a
+ * number beside every marker in `thresholds.agent_points`. `thresholds` is copied from
+ * `liveness.method` verbatim (never re-derived).
+ *
+ * @param {object} liveness a parsed `liveness-compact.json` document
+ * @param {string} did already validated against {@link DID_RE}
+ * @returns {{status: number, body: object}}
+ */
+export function lookupLivenessAgent(liveness, did) {
+  const arr = liveness.agents[did];
+  if (arr === undefined) {
+    return { status: 404, body: { error: "unknown_agent" } };
+  }
+  const [
+    tier,
+    points,
+    roomsCount,
+    liveRoomsCount,
+    replyIn,
+    replyInNonburst,
+    replyOut,
+    workCycles,
+    templateRows,
+    faucetOnboardingRows,
+    githubContribRows,
+    didNotePresent,
+    postCount,
+    unsignedRows,
+    distinctTextRatio,
+    ageDays,
+  ] = arr;
+  return {
+    status: 200,
+    body: {
+      did,
+      tier,
+      points,
+      signals: {
+        post_count: postCount,
+        unsigned_rows: unsignedRows,
+        rooms_count: roomsCount,
+        live_rooms_count: liveRoomsCount,
+        reply_in: replyIn,
+        reply_in_nonburst: replyInNonburst,
+        reply_out: replyOut,
+        work_cycles: workCycles,
+        template_rows: templateRows,
+        faucet_onboarding_rows: faucetOnboardingRows,
+        github_contrib_rows: githubContribRows,
+        did_note_present: Boolean(didNotePresent),
+        distinct_text_ratio: distinctTextRatio,
+        age_days: ageDays,
+      },
+      thresholds: {
+        agent_points: liveness.method.agent_points,
+        tier_thresholds: liveness.method.tier_thresholds,
+        agent_min_posts: liveness.method.constants.AGENT_MIN_POSTS,
+      },
+      provenance: livenessProvenance(liveness),
+    },
+  };
 }
 
 /**
@@ -647,6 +844,8 @@ export function buildRouteBody(index, ledger, offerShape, params) {
  * @param {object | null} [offerShape] a parsed `offer-shape.json` document, or `null`/omitted --
  *   `GET /route` then answers `500 {"error": "offer_shape_missing"}` for every request (package
  *   D2): a deploy built without this artifact must not answer a wrong shape.
+ * @param {object | null} [liveness] a parsed `liveness-compact.json` document, or `null`/omitted --
+ *   every `/liveness*` route then answers `404 {"error": "liveness_not_built"}` (package LM3).
  * @returns {Promise<Response>}
  */
 export async function handleJsonRoute(
@@ -656,6 +855,7 @@ export async function handleJsonRoute(
   env,
   knownKindsSet = new Set(knownKinds(index)),
   offerShape = null,
+  liveness = null,
 ) {
   const { method } = request;
   const url = new URL(request.url);
@@ -666,13 +866,18 @@ export async function handleJsonRoute(
   }
 
   const isDid = pathname.startsWith("/did/");
+  const isLivenessRoom = pathname.startsWith("/liveness/room/");
+  const isLivenessAgent = pathname.startsWith("/liveness/agent/");
   const isIndexRedirect = INDEX_REDIRECTS.has(pathname);
   const matched =
     pathname === "/" ||
     pathname === "/healthz" ||
     pathname === "/search" ||
     pathname === "/route" ||
+    pathname === "/liveness" ||
     isDid ||
+    isLivenessRoom ||
+    isLivenessAgent ||
     isIndexRedirect;
 
   const rateLimitExempt = pathname === "/" || pathname === "/healthz";
@@ -690,7 +895,7 @@ export async function handleJsonRoute(
 
   if (pathname === "/") {
     if (wantsHtml(request, url)) return htmlResponse(index, method);
-    return jsonResponse(index, 200, serviceCard(index, ledger, url.origin), {
+    return jsonResponse(index, 200, serviceCard(index, ledger, url.origin, liveness), {
       method,
       cacheSeconds: CARD_CACHE_SECONDS,
       extraHeaders: { vary: "Accept" },
@@ -698,7 +903,10 @@ export async function handleJsonRoute(
   }
 
   if (pathname === "/healthz") {
-    return jsonResponse(index, 200, healthzBody(index, ledger), { method, cacheSeconds: CARD_CACHE_SECONDS });
+    return jsonResponse(index, 200, healthzBody(index, ledger, liveness), {
+      method,
+      cacheSeconds: CARD_CACHE_SECONDS,
+    });
   }
 
   if (pathname === "/search") {
@@ -767,6 +975,81 @@ export async function handleJsonRoute(
     });
   }
 
+  if (pathname === "/liveness") {
+    if (liveness == null) {
+      return jsonResponse(index, 404, { error: "liveness_not_built" }, {
+        method,
+        cacheSeconds: LIVENESS_CACHE_SECONDS,
+      });
+    }
+    return jsonResponse(index, 200, buildLivenessOverviewBody(liveness), {
+      method,
+      cacheSeconds: LIVENESS_CACHE_SECONDS,
+      extraHeaders: { "x-liveness-generated-at": liveness.generated_at },
+    });
+  }
+
+  if (isLivenessRoom) {
+    // Percent-decoded like `/did/{did}`, so an encoded room id reaches the same answer a literal
+    // one does; a malformed escape sequence is simply an invalid room id.
+    let room = pathname.slice("/liveness/room/".length);
+    try {
+      room = decodeURIComponent(room);
+    } catch {
+      room = "";
+    }
+    const livenessHeaders = liveness == null ? {} : { "x-liveness-generated-at": liveness.generated_at };
+    if (!ROOM_ID_RE.test(room)) {
+      return jsonResponse(index, 400, { error: "invalid_room" }, {
+        method,
+        cacheSeconds: LIVENESS_CACHE_SECONDS,
+        extraHeaders: livenessHeaders,
+      });
+    }
+    if (liveness == null) {
+      return jsonResponse(index, 404, { error: "liveness_not_built" }, {
+        method,
+        cacheSeconds: LIVENESS_CACHE_SECONDS,
+      });
+    }
+    const { status, body } = lookupLivenessRoom(liveness, room);
+    return jsonResponse(index, status, body, {
+      method,
+      cacheSeconds: LIVENESS_CACHE_SECONDS,
+      extraHeaders: livenessHeaders,
+    });
+  }
+
+  if (isLivenessAgent) {
+    // Percent-decoded like `/did/{did}` (see above).
+    let did = pathname.slice("/liveness/agent/".length);
+    try {
+      did = decodeURIComponent(did);
+    } catch {
+      did = "";
+    }
+    const livenessHeaders = liveness == null ? {} : { "x-liveness-generated-at": liveness.generated_at };
+    if (!DID_RE.test(did)) {
+      return jsonResponse(index, 400, { error: "invalid_did" }, {
+        method,
+        cacheSeconds: LIVENESS_CACHE_SECONDS,
+        extraHeaders: livenessHeaders,
+      });
+    }
+    if (liveness == null) {
+      return jsonResponse(index, 404, { error: "liveness_not_built" }, {
+        method,
+        cacheSeconds: LIVENESS_CACHE_SECONDS,
+      });
+    }
+    const { status, body } = lookupLivenessAgent(liveness, did);
+    return jsonResponse(index, status, body, {
+      method,
+      cacheSeconds: LIVENESS_CACHE_SECONDS,
+      extraHeaders: livenessHeaders,
+    });
+  }
+
   if (isIndexRedirect) {
     return redirectResponse(index, /** @type {string} */ (INDEX_REDIRECTS.get(pathname)));
   }
@@ -790,9 +1073,11 @@ export async function handleJsonRoute(
  *   (`/did/{did}` then answers `ledger_not_built` for every well-formed DID -- package B2)
  * @param {object | null} [offerShape] a parsed `offer-shape.json` document, or `null`/omitted
  *   (`GET /route` then answers `500 {"error": "offer_shape_missing"}` -- package D2)
+ * @param {object | null} [liveness] a parsed `liveness-compact.json` document, or `null`/omitted
+ *   (every `/liveness*` route then answers `404 {"error": "liveness_not_built"}` -- package LM3)
  * @returns {{fetch: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>, handle: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>}}
  */
-export function makeWorker(index, ledger = null, offerShape = null) {
+export function makeWorker(index, ledger = null, offerShape = null, liveness = null) {
   // Computed once per loaded `index`, not per request or hard-coded -- see the kind rule at
   // {@link knownKinds}.
   const knownKindsSet = new Set(knownKinds(index));
@@ -802,7 +1087,7 @@ export function makeWorker(index, ledger = null, offerShape = null) {
    * @returns {Promise<Response>}
    */
   async function handle(request, env) {
-    return handleJsonRoute(index, ledger, request, env, knownKindsSet, offerShape);
+    return handleJsonRoute(index, ledger, request, env, knownKindsSet, offerShape, liveness);
   }
   return { fetch: handle, handle };
 }

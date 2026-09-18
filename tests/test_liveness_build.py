@@ -243,10 +243,10 @@ def test_load_compact_liveness_rejects_wrong_array_length(tmp_path):
     liveness = build_liveness(FIXTURES, _ledger(), now=FIXED_NOW, window_days=WINDOW_DAYS_DEFAULT)
     obj = json.loads(to_compact_json_bytes(liveness).decode("utf-8"))
     some_did = next(iter(obj["agents"]))
-    obj["agents"][some_did] = obj["agents"][some_did][:11]  # drop one element
+    obj["agents"][some_did] = obj["agents"][some_did][:15]  # drop one element
     path = tmp_path / "shortarray.json"
     path.write_text(json.dumps(obj), encoding="utf-8")
-    with pytest.raises(ValueError, match="12-element"):
+    with pytest.raises(ValueError, match="16-element"):
         load_compact_liveness(path)
 
 

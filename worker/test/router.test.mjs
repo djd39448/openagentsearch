@@ -80,7 +80,7 @@ test("GET / returns the service card with the full header set", async () => {
   assert.equal(body.db_sha256, INDEX.db_sha256);
   assert.ok(Array.isArray(body.routes));
   assert.ok(body.routes.includes("POST /mcp"));
-  assert.deepEqual(body.tools, ["search", "did_lookup", "index_info", "route"]);
+  assert.deepEqual(body.tools, ["search", "did_lookup", "index_info", "route", "liveness"]);
   assert.equal(body.ledger, null); // no ledger passed to makeWorker (package B2)
 });
 

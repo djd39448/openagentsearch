@@ -395,15 +395,20 @@ def agent_verdict_to_obj(v: AgentVerdict, s: AgentSignals) -> dict[str, Any]:
 
 
 def agent_signals_to_compact_array(s: AgentSignals, v: AgentVerdict) -> list[Any]:
-    """The fixed 12-element compact array for `agents.<did>` in the compact artifact:
-    `[tier, points, rooms_count, reply_in, reply_out, work_cycles, template_rows,
-    faucet_onboarding_rows, github_contrib_rows, did_note_present(0/1), post_count,
-    unsigned_rows]`."""
+    """The fixed 16-element compact array for `agents.<did>` in the compact artifact:
+    `[tier, points, rooms_count, live_rooms_count, reply_in, reply_in_nonburst, reply_out,
+    work_cycles, template_rows, faucet_onboarding_rows, github_contrib_rows, did_note_present(0/1),
+    post_count, unsigned_rows, distinct_text_ratio, age_days]` -- every value the points table
+    (`classify_agent`) reads, so a reader of the compact artifact (the Worker's
+    `/liveness/agent/{did}`, package LM3) can put a number beside every marker and recompute the
+    tier; `unsigned_rows` rides along as the one informational value."""
     return [
         v.tier,
         v.points,
         s.rooms_count,
+        s.live_rooms_count,
         s.reply_in,
+        s.reply_in_nonburst,
         s.reply_out,
         s.work_cycles,
         s.template_rows,
@@ -412,4 +417,6 @@ def agent_signals_to_compact_array(s: AgentSignals, v: AgentVerdict) -> list[Any
         1 if s.did_note_present else 0,
         s.post_count,
         s.unsigned_rows,
+        s.distinct_text_ratio,
+        s.age_days,
     ]

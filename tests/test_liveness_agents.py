@@ -1,5 +1,5 @@
 """LM1-SPEC section 6: `AgentSignals`/`classify_agent`'s points table, tier rule, `unsigned_rows`
-being informational only, and the compact 12-element array."""
+being informational only, and the compact 16-element array."""
 
 import pytest
 
@@ -202,12 +202,17 @@ def test_agent_signals_to_compact_array_shape_and_values():
     )
     v = classify_agent(s)
     arr = agent_signals_to_compact_array(s, v)
-    assert len(arr) == 12
+    assert len(arr) == 16
     assert arr == [
-        v.tier, v.points, s.rooms_count, s.reply_in, s.reply_out, s.work_cycles,
-        s.template_rows, s.faucet_onboarding_rows, s.github_contrib_rows, 1,
-        s.post_count, s.unsigned_rows,
+        v.tier, v.points, s.rooms_count, s.live_rooms_count, s.reply_in, s.reply_in_nonburst,
+        s.reply_out, s.work_cycles, s.template_rows, s.faucet_onboarding_rows,
+        s.github_contrib_rows, 1, s.post_count, s.unsigned_rows, s.distinct_text_ratio,
+        s.age_days,
     ]
+    # Every value the points table reads is in the array (so the tier is recomputable from it),
+    # in the documented order.
+    for name in ("live_rooms_count", "reply_in_nonburst", "distinct_text_ratio", "age_days"):
+        assert getattr(s, name) in arr
 
 
 def test_agent_verdict_to_obj_shape():

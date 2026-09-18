@@ -19,6 +19,7 @@ import { z } from "zod";
 
 import INDEX from "../index/lexical-v1.json" with { type: "json" };
 import LEDGER from "../index/did-ledger-compact.json" with { type: "json" };
+import LIVENESS from "../index/liveness-compact.json" with { type: "json" };
 import PACKAGE from "../package.json" with { type: "json" };
 import OFFER_SHAPE from "./offer-shape.json" with { type: "json" };
 import { search } from "./search.js";
@@ -26,12 +27,16 @@ import {
   DID_RE,
   MODEL_HASH_RE,
   PRECISION_RE,
+  ROOM_ID_RE,
+  buildLivenessOverviewBody,
   buildRouteBody,
   checkRateLimit,
   handleJsonRoute,
   healthzBody,
   knownKinds,
   lookupDid,
+  lookupLivenessAgent,
+  lookupLivenessRoom,
 } from "./routes.js";
 
 const SERVICE_NAME = "openagentsearch";
@@ -51,9 +56,12 @@ const SERVICE_NAME = "openagentsearch";
  * @param {object | null} [offerShape] a parsed `offer-shape.json` document, or `null`/omitted --
  *   the `route` tool then answers `isError: true` with `{"error": "offer_shape_missing"}` for
  *   every call (package D2)
+ * @param {object | null} [liveness] a parsed `liveness-compact.json` document, or `null`/omitted --
+ *   the `liveness` tool then answers `isError: true` with `{"error": "liveness_not_built"}` for
+ *   every call (package LM3)
  * @returns {McpServer}
  */
-export function createServer(index, ledger = null, offerShape = null) {
+export function createServer(index, ledger = null, offerShape = null, liveness = null) {
   const server = new McpServer({ name: SERVICE_NAME, version: PACKAGE.version });
   // Computed from `index`, not hard-coded -- see the kind rule at `./routes.js`'s `knownKinds`.
   // `kind` itself stays a plain bounded string in the schema (not `z.enum`) so an unknown value
@@ -195,6 +203,74 @@ export function createServer(index, ledger = null, offerShape = null) {
     },
   );
 
+  server.registerTool(
+    "liveness",
+    {
+      description:
+        "Room-class and agent-tier liveness signal (package LM1-LM3), computed purely from " +
+        "counted facts over the message log and the reputation ledger -- never a truth about a " +
+        "person, never a ban list. No argument: the same body as GET /liveness (overview, minus " +
+        "the per-agent map). room: the same body as GET /liveness/room/{room}. did: the same " +
+        "body as GET /liveness/agent/{did}. Exactly one of room/did may be given; both is " +
+        "isError: true one_of_room_or_did.",
+      inputSchema: z.object({
+        room: z.string().min(1).max(128).optional(),
+        did: z.string().min(1).max(200).optional(),
+      }),
+    },
+    async ({ room, did }) => {
+      // Checked FIRST, before any lookup -- handoff/LM3-SPEC.md §2.
+      if (room !== undefined && did !== undefined) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: "one_of_room_or_did" }) }],
+          isError: true,
+        };
+      }
+      if (room !== undefined) {
+        // Same manual ROOM_ID_RE check `handleJsonRoute` (./routes.js) makes before ever calling
+        // `lookupLivenessRoom` -- the schema above only bounds length, not the room-id alphabet.
+        if (!ROOM_ID_RE.test(room)) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: "invalid_room" }) }],
+            isError: true,
+          };
+        }
+        if (liveness == null) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: "liveness_not_built" }) }],
+            isError: true,
+          };
+        }
+        const { status, body } = lookupLivenessRoom(liveness, room);
+        return { content: [{ type: "text", text: JSON.stringify(body) }], isError: status !== 200 };
+      }
+      if (did !== undefined) {
+        // Same manual DID_RE check `handleJsonRoute` makes -- see `did_lookup`'s own comment above.
+        if (!DID_RE.test(did)) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: "invalid_did" }) }],
+            isError: true,
+          };
+        }
+        if (liveness == null) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ error: "liveness_not_built" }) }],
+            isError: true,
+          };
+        }
+        const { status, body } = lookupLivenessAgent(liveness, did);
+        return { content: [{ type: "text", text: JSON.stringify(body) }], isError: status !== 200 };
+      }
+      if (liveness == null) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: "liveness_not_built" }) }],
+          isError: true,
+        };
+      }
+      return { content: [{ type: "text", text: JSON.stringify(buildLivenessOverviewBody(liveness)) }] };
+    },
+  );
+
   return server;
 }
 
@@ -212,10 +288,13 @@ export function createServer(index, ledger = null, offerShape = null) {
  *   DID -- package B2)
  * @param {object | null} [offerShape] a parsed `offer-shape.json` document, or `null`/omitted
  *   (`GET /route` and the `route` tool then answer `offer_shape_missing` -- package D2)
+ * @param {object | null} [liveness] a parsed `liveness-compact.json` document, or `null`/omitted
+ *   (every `/liveness*` route and the `liveness` tool then answer `liveness_not_built` -- package
+ *   LM3)
  * @returns {{fetch: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>, handle: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response>}}
  */
-export function makeWorker(index, ledger = null, offerShape = null) {
-  const mcpHandler = createMcpHandler(() => createServer(index, ledger, offerShape), {
+export function makeWorker(index, ledger = null, offerShape = null, liveness = null) {
+  const mcpHandler = createMcpHandler(() => createServer(index, ledger, offerShape, liveness), {
     route: "/mcp",
   });
   // Computed once per loaded `index`, not per request or hard-coded -- see the kind rule at
@@ -237,13 +316,13 @@ export function makeWorker(index, ledger = null, offerShape = null) {
       if (limited) return limited;
       return mcpHandler(request, env, ctx);
     }
-    return handleJsonRoute(index, ledger, request, env, knownKindsSet, offerShape);
+    return handleJsonRoute(index, ledger, request, env, knownKindsSet, offerShape, liveness);
   }
 
   return { fetch: handle, handle };
 }
 
-const worker = makeWorker(INDEX, LEDGER, OFFER_SHAPE);
+const worker = makeWorker(INDEX, LEDGER, OFFER_SHAPE, LIVENESS);
 
 /** The default-index-bound handler, exported standalone for callers that want it directly. */
 export const handle = worker.handle;

@@ -533,7 +533,7 @@ def to_json_bytes(m: LivenessMap) -> bytes:
 def to_compact_json_bytes(m: LivenessMap) -> bytes:
     """`m` -> the canonical UTF-8 bytes of `liveness-compact.json`: `method`/`rooms`/`counts`
     verbatim (the same shapes `to_json_bytes` writes for them), `agents` reduced to the fixed
-    12-element array `agents.agent_signals_to_compact_array` documents."""
+    16-element array `agents.agent_signals_to_compact_array` documents."""
     rooms_obj = {room: _room_entry_to_obj(entry) for room, entry in m.rooms.items()}
     agents_obj = {
         did: agent_signals_to_compact_array(entry.signals, entry.verdict)
@@ -917,16 +917,20 @@ _AGENT_TIERS = frozenset({"unknown", "farm", "weak", "likely_live", "live"})
 
 @dataclass(frozen=True)
 class CompactAgentEntry:
-    """One DID's entry in the compact artifact -- the same 12 fields
-    `agents.agent_signals_to_compact_array` writes, named. Deliberately NOT an `AgentSignals`: the
-    compact array carries no per-room breakdown, no `reply_in_distinct`, no `distinct_text_ratio`,
-    and no `age_days`/`first_seen_ts`/`last_seen_ts` -- there is nothing here to reconstruct a full
-    `AgentSignals` from, and this type never pretends otherwise."""
+    """One DID's entry in the compact artifact -- the same 16 fields
+    `agents.agent_signals_to_compact_array` writes, named: every value the points table reads
+    (so the tier is recomputable from this entry alone) plus `unsigned_rows`. Deliberately NOT an
+    `AgentSignals`: the compact array carries no per-room breakdown, no `reply_in_distinct`, no
+    `burst` flag (a burst member is simply tier `farm`) and no `first_seen_ts`/`last_seen_ts` --
+    there is nothing here to reconstruct a full `AgentSignals` from, and this type never pretends
+    otherwise."""
 
     tier: str
     points: int
     rooms_count: int
+    live_rooms_count: int
     reply_in: int
+    reply_in_nonburst: int
     reply_out: int
     work_cycles: int
     template_rows: int
@@ -935,19 +939,26 @@ class CompactAgentEntry:
     did_note_present: bool
     post_count: int
     unsigned_rows: int
+    distinct_text_ratio: float
+    age_days: float
 
     def __post_init__(self) -> None:
         if self.tier not in _AGENT_TIERS:
             raise ValueError(f"tier must be one of {sorted(_AGENT_TIERS)}, got {self.tier!r}")
         for name in (
-            "points", "rooms_count", "reply_in", "reply_out", "work_cycles", "template_rows",
-            "faucet_onboarding_rows", "github_contrib_rows", "post_count", "unsigned_rows",
+            "points", "rooms_count", "live_rooms_count", "reply_in", "reply_in_nonburst",
+            "reply_out", "work_cycles", "template_rows", "faucet_onboarding_rows",
+            "github_contrib_rows", "post_count", "unsigned_rows",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int):
                 raise ValueError(f"{name} must be an int, got {value!r}")
         if not isinstance(self.did_note_present, bool):
             raise ValueError("did_note_present must be a bool")
+        for name in ("distinct_text_ratio", "age_days"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                raise ValueError(f"{name} must be a non-negative number, got {value!r}")
 
 
 @dataclass(frozen=True)
@@ -1013,7 +1024,7 @@ def load_compact_liveness(
     `write_compact_liveness`/`to_compact_json_bytes`. Same failure modes as `load_liveness` (over
     `max_bytes`; invalid UTF-8/JSON/shape; wrong `schema`; malformed room entries; `counts`
     disagreeing with the actual maps), plus: refuses any `agents.<did>` entry that is not a list of
-    EXACTLY 12 elements in the documented order, or whose `tier` is outside the tier vocabulary.
+    EXACTLY 16 elements in the documented order, or whose `tier` is outside the tier vocabulary.
     """
     path = Path(path)
     size = path.stat().st_size
@@ -1059,12 +1070,12 @@ def load_compact_liveness(
     for did, arr in agents_raw.items():
         if not isinstance(did, str):
             raise _fail(f"agents key must be a string, got {did!r}")
-        if not isinstance(arr, list) or len(arr) != 12:
-            raise _fail(f"agents[{did!r}] must be a 12-element array, got {arr!r}")
+        if not isinstance(arr, list) or len(arr) != 16:
+            raise _fail(f"agents[{did!r}] must be a 16-element array, got {arr!r}")
         (
-            tier, points, rooms_count, reply_in, reply_out, work_cycles_n, template_rows,
-            faucet_onboarding_rows, github_contrib_rows, did_note_present, post_count,
-            unsigned_rows,
+            tier, points, rooms_count, live_rooms_count, reply_in, reply_in_nonburst, reply_out,
+            work_cycles_n, template_rows, faucet_onboarding_rows, github_contrib_rows,
+            did_note_present, post_count, unsigned_rows, distinct_text_ratio, age_days,
         ) = arr
         entry_path = f"agents[{did!r}]"
         if not isinstance(tier, str):
@@ -1072,7 +1083,8 @@ def load_compact_liveness(
         if isinstance(points, bool) or not isinstance(points, int):
             raise _fail(f"{entry_path}[1] (points) must be an int")
         int_fields = {
-            "rooms_count": rooms_count, "reply_in": reply_in, "reply_out": reply_out,
+            "rooms_count": rooms_count, "live_rooms_count": live_rooms_count,
+            "reply_in": reply_in, "reply_in_nonburst": reply_in_nonburst, "reply_out": reply_out,
             "work_cycles": work_cycles_n, "template_rows": template_rows,
             "faucet_onboarding_rows": faucet_onboarding_rows,
             "github_contrib_rows": github_contrib_rows,
@@ -1081,16 +1093,22 @@ def load_compact_liveness(
         for name, value in int_fields.items():
             if isinstance(value, bool) or not isinstance(value, int):
                 raise _fail(f"{entry_path} field {name!r} must be an int, got {value!r}")
+        for name, value in (("distinct_text_ratio", distinct_text_ratio), ("age_days", age_days)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise _fail(f"{entry_path} field {name!r} must be a number, got {value!r}")
         if did_note_present not in (0, 1):
             raise _fail(f"{entry_path} did_note_present must be 0 or 1, got {did_note_present!r}")
         try:
             agents[did] = CompactAgentEntry(
-                tier=tier, points=points, rooms_count=rooms_count, reply_in=reply_in,
-                reply_out=reply_out, work_cycles=work_cycles_n, template_rows=template_rows,
+                tier=tier, points=points, rooms_count=rooms_count,
+                live_rooms_count=live_rooms_count, reply_in=reply_in,
+                reply_in_nonburst=reply_in_nonburst, reply_out=reply_out,
+                work_cycles=work_cycles_n, template_rows=template_rows,
                 faucet_onboarding_rows=faucet_onboarding_rows,
                 github_contrib_rows=github_contrib_rows,
                 did_note_present=bool(did_note_present), post_count=post_count,
-                unsigned_rows=unsigned_rows,
+                unsigned_rows=unsigned_rows, distinct_text_ratio=float(distinct_text_ratio),
+                age_days=float(age_days),
             )
         except ValueError as exc:
             raise _fail(f"{entry_path}: {exc}") from exc

@@ -96,17 +96,19 @@ for (const c of ACCEPT_CASES) {
 
 // --- 2. Agent contract unchanged --------------------------------------------------------------
 
-test("GET / JSON body: key order is the captured live fixture's plus `inspector` before `ledger`", { timeout: 10000 }, async () => {
-  // The one deliberate addition to the pre-UI card (Dave's word, 2026-09-18): `inspector`, the
-  // Worker's own root URL, inserted after `static_index`. Every other key keeps its place.
+test("GET / JSON body: key order is the captured live fixture's plus `inspector` before `ledger` and `liveness` last", { timeout: 10000 }, async () => {
+  // The pre-UI card (Dave's word, 2026-09-18) gains `inspector` (after `static_index`) and,
+  // package LM3, `liveness` (after `ledger`, at the very end). Every other key keeps its place.
   const worker = makeWorker(INDEX, LEDGER, OFFER_SHAPE);
   const res = await worker.fetch(req("/"), ALWAYS_ALLOW);
   const text = await res.text();
   const body = JSON.parse(text);
   const expected = Object.keys(FIXTURE_CARD);
   expected.splice(expected.indexOf("static_index") + 1, 0, "inspector");
+  expected.push("liveness");
   assert.deepEqual(Object.keys(body), expected);
   assert.equal(body.inspector, `${BASE}/`);
+  assert.equal(body.liveness, null); // no liveness map passed to makeWorker in this test
 });
 
 test("GET / `inspector` is the request's own origin, so it is right under wrangler dev too", { timeout: 10000 }, async () => {
@@ -116,13 +118,21 @@ test("GET / `inspector` is the request's own origin, so it is right under wrangl
   assert.equal(body.inspector, "http://127.0.0.1:8787/");
 });
 
-test("GET / JSON body: service/routes/tools/docs/static_index match the fixture's", { timeout: 10000 }, async () => {
+test("GET / JSON body: service/routes/tools/docs/static_index match the fixture's, plus the package LM3 liveness routes/tool", { timeout: 10000 }, async () => {
   const worker = makeWorker(INDEX, LEDGER, OFFER_SHAPE);
   const res = await worker.fetch(req("/"), ALWAYS_ALLOW);
   const body = await res.json();
   assert.equal(body.service, FIXTURE_CARD.service);
-  assert.deepEqual(body.routes, FIXTURE_CARD.routes);
-  assert.deepEqual(body.tools, FIXTURE_CARD.tools);
+  const expectedRoutes = [...FIXTURE_CARD.routes];
+  expectedRoutes.splice(
+    expectedRoutes.indexOf("GET /route") + 1,
+    0,
+    "GET /liveness",
+    "GET /liveness/room/{room}",
+    "GET /liveness/agent/{did}",
+  );
+  assert.deepEqual(body.routes, expectedRoutes);
+  assert.deepEqual(body.tools, [...FIXTURE_CARD.tools, "liveness"]);
   assert.equal(body.docs, FIXTURE_CARD.docs);
   assert.equal(body.static_index, FIXTURE_CARD.static_index);
 });
@@ -292,7 +302,10 @@ test("page hygiene: no banned APIs/strings anywhere in PAGE_HTML", { timeout: 10
 });
 
 test("page hygiene: PAGE_HTML byte size is within budget", { timeout: 10000 }, () => {
-  assert.ok(Buffer.byteLength(PAGE_HTML) <= 40960, `PAGE_HTML is ${Buffer.byteLength(PAGE_HTML)} bytes`);
+  // Raised from 40,960 (40 KiB) to 57,344 (56 KiB) for package LM3: a fifth panel with a room
+  // table, a DID form, the method block and caveats cannot fit the 40 KiB budget set for four
+  // panels, and splitting the script into two hash-pinned blocks buys nothing a size cap does not.
+  assert.ok(Buffer.byteLength(PAGE_HTML) <= 57344, `PAGE_HTML is ${Buffer.byteLength(PAGE_HTML)} bytes`);
 });
 
 test("page hygiene: PAGE_SCRIPT builds DOM only via textContent/createElement", { timeout: 10000 }, () => {
@@ -310,6 +323,7 @@ test("page hygiene: required static markup and strings are present", { timeout: 
     '<section id="did">',
     '<section id="route">',
     '<section id="health">',
+    '<section id="map">',
     "Agents get JSON on this URL; this page is the same routes, rendered. Raw JSON on every panel is byte-identical to what an agent receives.",
     "advisory",
     "candidates_reason",
@@ -319,6 +333,10 @@ test("page hygiene: required static markup and strings are present", { timeout: 
     "never used",
     "0.0 by construction",
     "absence is not evidence",
+    "evidence from one log, never a verdict about a person",
+    "`unknown` is the honest default",
+    "not a ban list",
+    "no signature verification",
   ];
   for (const s of REQUIRED_SUBSTRINGS) {
     assert.ok(PAGE_HTML.includes(s), `PAGE_HTML is missing required text: ${s}`);

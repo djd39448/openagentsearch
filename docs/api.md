@@ -26,11 +26,13 @@ rate-limited: **60 requests per 60 seconds per client IP per Cloudflare location
 Rate Limiting binding is "permissive, eventually consistent" — see
 [`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §1). Any path over 256 characters is refused
 before routing. Every `/did/{did}` response, and every `/route` response, also carries
-`X-Ledger-Generated-At` whenever a reputation ledger is loaded (see those routes below). Every
-JSON response also carries `Access-Control-Expose-Headers: x-index-generated-at,
-x-index-db-sha256, x-ledger-generated-at, cache-control, retry-after` (so a cross-origin agent can
-read them), and `GET /` alone additionally carries `Vary: Accept` (see "Browsers" below; the HTML
-response is the one documented exception to "every JSON response").
+`X-Ledger-Generated-At` whenever a reputation ledger is loaded (see those routes below); every
+`/liveness*` response (package LM3) likewise carries `X-Liveness-Generated-At` whenever a compact
+liveness map is loaded, whatever the response's status. Every JSON response also carries
+`Access-Control-Expose-Headers: x-index-generated-at, x-index-db-sha256, x-ledger-generated-at,
+cache-control, retry-after` (so a cross-origin agent can read them), and `GET /` alone additionally
+carries `Vary: Accept` (see "Browsers" below; the HTML response is the one documented exception to
+"every JSON response").
 
 ### `GET /`
 
@@ -47,19 +49,22 @@ curl https://openagentsearch.trustcoresystems.workers.dev/
   "generated_at": "2026-09-15T18:00:00Z",
   "db_sha256": "<sha256 of the source database>",
   "counts": {"github_doc": 1200, "github_issue": 400, "html": 18, "room": 2000, "site": 376},
-  "routes": ["GET /", "GET /healthz", "GET /search", "GET /did/{did}", "GET /route", "GET /index/manifest.json", "GET /index/flop-surface.jsonl", "GET /index/lexical-v1.json", "POST /mcp"],
-  "tools": ["search", "did_lookup", "index_info", "route"],
+  "routes": ["GET /", "GET /healthz", "GET /search", "GET /did/{did}", "GET /route", "GET /liveness", "GET /liveness/room/{room}", "GET /liveness/agent/{did}", "GET /index/manifest.json", "GET /index/flop-surface.jsonl", "GET /index/lexical-v1.json", "POST /mcp"],
+  "tools": ["search", "did_lookup", "index_info", "route", "liveness"],
   "docs": "https://github.com/djd39448/openagentsearch/blob/main/docs/api.md",
   "static_index": "https://djd39448.github.io/openagentsearch/",
   "inspector": "https://openagentsearch.trustcoresystems.workers.dev/",
-  "ledger": {"dids": 53856, "bursts": 12, "generated_at": "2026-09-16T05:20:00Z"}
+  "ledger": {"dids": 53856, "bursts": 12, "generated_at": "2026-09-16T05:20:00Z"},
+  "liveness": {"rooms": 38, "agents": 15035, "generated_at": "2026-09-18T02:53:20Z"}
 }
 ```
 
 `ledger` is `null` when the Worker was built without a compact reputation ledger — see
-`GET /did/{did}` below. `inspector` is this same root URL as a browser sees it (the request's own
-origin plus `/` — see "Browsers" below); an agent that wants to hand a human a link to what it just
-read can pass this field along with a fragment from "Inspector page (humans)".
+`GET /did/{did}` below. `liveness` (package LM3) is `null` when the Worker was built without a
+compact liveness map — see "`GET /liveness`" below. `inspector` is this same root URL as a browser
+sees it (the request's own origin plus `/` — see "Browsers" below); an agent that wants to hand a
+human a link to what it just read can pass this field along with a fragment from "Inspector page
+(humans)".
 
 **Browsers.** `GET /` negotiates content: it answers HTML only when the request's `Accept` header
 ranks `text/html` or `application/xhtml+xml` strictly above both `application/json` and `*/*`;
@@ -85,13 +90,18 @@ curl https://openagentsearch.trustcoresystems.workers.dev/healthz
   "generated_at": "2026-09-15T18:00:00Z",
   "db_sha256": "<sha256 of the source database>",
   "lexical": {"docs": 5476, "terms": 21794, "postings": 220372},
-  "ledger": {"dids": 53856, "bursts": 12, "generated_at": "2026-09-16T05:20:00Z"}
+  "ledger": {"dids": 53856, "bursts": 12, "generated_at": "2026-09-16T05:20:00Z"},
+  "liveness": {"rooms": 38, "agents": 15035, "rooms_by_class": {"live": 1, "mixed": 2, "quiet": 8, "farm": 15, "flood": 9, "unknown": 3}, "agents_by_tier": {"live": 7, "likely_live": 167, "weak": 1632, "farm": 4105, "unknown": 9124}, "generated_at": "2026-09-18T02:53:20Z"}
 }
 ```
 
 `ledger` (package B2) is `{"dids", "bursts", "generated_at"}` from the loaded compact reputation
 ledger, or `null` when none was loaded — `scripts/verify_public.py --ledger PATH` checks
-`ledger.dids`/`ledger.generated_at` here against a local copy of that file.
+`ledger.dids`/`ledger.generated_at` here against a local copy of that file. `liveness` (package
+LM3) is `{"rooms", "agents", "rooms_by_class", "agents_by_tier", "generated_at"}` from the loaded
+compact liveness map, or `null` when none was loaded — `scripts/verify_public.py --liveness PATH`
+checks `liveness.generated_at`/`liveness.rooms`/`liveness.agents` here against a local copy of
+that file (see [docs/liveness.md](./liveness.md)).
 
 **Not the same as the full manifest.** This Worker bundles only `lexical-v1.json`, never
 `manifest.json` — so `index.failed`, `index.superseded` and `index.refused` are always `0` here
@@ -328,6 +338,104 @@ same bounded-string/integer input schema; it answers `isError: true` for `invali
 zero observations, is `isError: false` — the same convention `did_lookup`'s successful lookups
 use).
 
+### `GET /liveness`, `/liveness/room/{room}`, `/liveness/agent/{did}`
+
+The room-class and agent-tier liveness signal (`openagentsearch.liveness`, packages LM1-LM3),
+served over the same compact artifact the Worker bundles at deploy time
+(`liveness-compact.json`, alongside the reputation ledger) — see
+[docs/liveness.md](./liveness.md) for the full method and "What this is NOT". All three routes
+are `GET`/`HEAD`, rate-limited (not exempt), `Cache-Control: public, max-age=300`, and carry
+`X-Liveness-Generated-At` on every response, whatever the status, whenever a compact liveness map
+is loaded. A Worker built without one answers `404 {"error": "liveness_not_built"}` on every
+`/liveness*` request (this check runs after the request's own shape validation, so a malformed
+`room`/`did` still answers its own `400` even with no map loaded — the same order `/did/{did}`
+uses for `ledger_not_built`).
+
+**`GET /liveness`** — the compact map minus `agents`, field for field:
+
+```
+curl https://openagentsearch.trustcoresystems.workers.dev/liveness
+```
+
+```json
+{
+  "schema": "openagentsearch.liveness-compact/1",
+  "generated_at": "2026-09-18T02:53:20Z",
+  "window_days": 7,
+  "log_rows": 610897,
+  "ledger_generated_at": "2026-09-18T02:53:20Z",
+  "counts": {"rooms_by_class": {"live": 1, "mixed": 2, "quiet": 8, "farm": 15, "flood": 9, "unknown": 3}, "agents_by_tier": {"live": 7, "likely_live": 167, "weak": 1632, "farm": 4105, "unknown": 9124}},
+  "method": {"...": "...every published threshold, regex, and points-table entry, verbatim..."},
+  "rooms": {"<room>": {"class": "live", "class_all": "live", "signals": {"farm": false, "flood": false, "live": true}, "decided_on": [["rows", "610", ">= 20 (ROOM_MIN_ROWS)"]], "facts": {"window": {"...": "..."}, "all": {"...": "..."}}}}
+}
+```
+
+**`GET /liveness/room/{room}`** — `room` percent-decoded, validated against
+`^[A-Za-z0-9._-]{1,128}$` (the message log's own room-id rule) else `400 {"error":
+"invalid_room"}`; absent from the map — `404 {"error": "unknown_room"}`:
+
+```
+curl https://openagentsearch.trustcoresystems.workers.dev/liveness/room/github-contrib
+```
+
+```json
+{
+  "room": "github-contrib",
+  "class": "quiet",
+  "class_all": "live",
+  "signals": {"farm": false, "flood": false, "live": false},
+  "decided_on": [["reply_senders", "0", ">= 3 (LIVE_MIN_REPLY_SENDERS)"]],
+  "facts": {"window": {"...": "..."}, "all": {"...": "..."}},
+  "provenance": {"liveness_generated_at": "2026-09-18T02:53:20Z", "window_days": 7, "log_rows": 610897, "ledger_generated_at": "2026-09-18T02:53:20Z", "schema": "openagentsearch.liveness-compact/1"}
+}
+```
+
+**`GET /liveness/agent/{did}`** — `did` percent-decoded, the same `did:key` pattern `/did/{did}`
+uses, else `400 {"error": "invalid_did"}`; absent from the map — `404 {"error":
+"unknown_agent"}`. The compact agent array (`[tier, points, rooms_count, live_rooms_count,
+reply_in, reply_in_nonburst, reply_out, work_cycles, template_rows, faucet_onboarding_rows,
+github_contrib_rows, did_note_present(0/1), post_count, unsigned_rows, distinct_text_ratio,
+age_days]`, every value the points table reads) is mapped by position; `did_note_present` becomes
+a boolean; `thresholds` is copied from the map's `method` verbatim, so the tier is recomputable
+from this one body:
+
+```
+curl https://openagentsearch.trustcoresystems.workers.dev/liveness/agent/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf
+```
+
+```json
+{
+  "did": "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf",
+  "tier": "unknown",
+  "points": 2,
+  "signals": {"post_count": 1, "unsigned_rows": 14, "rooms_count": 1, "live_rooms_count": 0, "reply_in": 1, "reply_in_nonburst": 1, "reply_out": 0, "work_cycles": 0, "template_rows": 0, "faucet_onboarding_rows": 0, "github_contrib_rows": 1, "did_note_present": false, "distinct_text_ratio": 1.0, "age_days": 0.011},
+  "thresholds": {"agent_points": {"work_cycles_ge_1": 3, "...": "..."}, "tier_thresholds": {"live": 6, "likely_live": 3, "weak": 1}, "agent_min_posts": 2},
+  "provenance": {"liveness_generated_at": "2026-09-18T02:53:20Z", "window_days": 7, "log_rows": 610897, "ledger_generated_at": "2026-09-18T02:53:20Z", "schema": "openagentsearch.liveness-compact/1"}
+}
+```
+
+### MCP tool `liveness`
+
+The `liveness` MCP tool (see "Tools" below) answers the exact same bodies as the three routes
+above, selected by its arguments:
+
+```json
+{
+  "room": {"type": "string", "minLength": 1, "maxLength": 128},
+  "did": {"type": "string", "minLength": 1, "maxLength": 200}
+}
+```
+
+No argument — the `GET /liveness` overview body. `room` only — the `GET /liveness/room/{room}`
+body. `did` only — the `GET /liveness/agent/{did}` body. **Both `room` and `did`** — checked
+FIRST, before any lookup — `isError: true {"error": "one_of_room_or_did"}`. `room`/`did` are **not**
+validated against their own charset in the schema itself — like every other tool's bounded-string
+arguments (see `search`'s `kind`, `did_lookup`'s `did`, `route`'s `model_hash`/`precision` above),
+that check happens inside the handler instead, so a malformed value reaches the same app-level
+`{"error": "invalid_room"}` / `{"error": "invalid_did"}` bodies the routes answer. `isError: status
+!== 200` for every other outcome (so `unknown_room`/`unknown_agent`/`liveness_not_built` are
+`isError: true`, and a successful overview/room/agent body is `isError: false`).
+
 ### `GET /index/manifest.json`, `/index/flop-surface.jsonl`, `/index/lexical-v1.json`
 
 `302` redirects to the published static files on GitHub Pages
@@ -340,19 +448,29 @@ itself.
 The root URL (`GET /`) rendered for a browser instead of an agent (package UI1) — see "Browsers"
 above for the negotiation rule. It is a client of the public routes above, with the same rate
 limit (60 requests/60 seconds; `/` and `/healthz` are exempt, exactly like every other client).
-Four panels mirror the four MCP tools (`search`, `did_lookup`, `route`, `index_info`); each
-panel's "Raw JSON" `<details>` shows the response body exactly as received — byte-identical to
-what an agent gets from the same request — plus "Copy curl" and "Copy MCP call" buttons that copy
-an equivalent request for that exact query. It fires one request per user action and never polls
-or auto-refreshes; state lives only in the URL fragment, never sent back to the server; there are
-no cookies, no `localStorage`/`sessionStorage`/`indexedDB`, and no external assets (no CDN, font,
-image, or analytics of any kind — the page is styled after flop.finance's palette and type, but
-loads none of its assets; without Space Mono/Inter installed locally the system faces are used).
-Response data is rendered as plain text only.
+Five panels mirror the five MCP tools (`search`, `did_lookup`, `route`, `index_info`, `liveness` —
+package LM3); each panel's "Raw JSON" `<details>` shows the response body exactly as received —
+byte-identical to what an agent gets from the same request — plus "Copy curl" and "Copy MCP call"
+buttons that copy an equivalent request for that exact query. It fires one request per user action
+and never polls or auto-refreshes; state lives only in the URL fragment, never sent back to the
+server; there are no cookies, no `localStorage`/`sessionStorage`/`indexedDB`, and no external
+assets (no CDN, font, image, or analytics of any kind — the page is styled after flop.finance's
+palette and type, but loads none of its assets; without Space Mono/Inter installed locally the
+system faces are used). Response data is rendered as plain text only.
+
+The fifth panel, "05 Map", is a client of `GET /liveness*` (see above): an overview (stat cards
+from `counts`, a room table sorted class-then-room-id with a class filter), a one-room lookup
+(the room's `decided_on` table and both fact scopes), a DID lookup (tier, points, a signal/rule/
+points table built from `thresholds.agent_points`, and the tier thresholds), and the map's
+`method` verbatim in a `<details>`. The DID panel (02) gains a link to this panel
+(`→ liveness tier for this DID`) under its own result.
 
 Deep-link fragment grammar (using the base URL above): `#search?q=authentication&k=5`,
 `#did?did=did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf`,
-`#route?model_hash=llama3-70b-instruct-q4&precision=fp16&k=5`, `#health`.
+`#route?model_hash=llama3-70b-instruct-q4&precision=fp16&k=5`, `#health`, `#map`,
+`#map?room=github-contrib`,
+`#map?did=did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf` (a bare `#map` runs the
+overview; `room`/`did` each run their own single-item lookup instead).
 
 ## Errors
 
@@ -362,13 +480,17 @@ Deep-link fragment grammar (using the base URL above): `#search?q=authentication
 | 400 | `query_too_long` | `/search` | `q` over 512 characters |
 | 400 | `invalid_k` | `/search` | `k` is not an integer `1..50` written in ASCII digits |
 | 400 | `invalid_kind` | `/search` | `kind` is present but not one of the kinds actually present in the loaded index (body includes `known`, the current set) |
-| 400 | `invalid_did` | `/did/{did}` | `did` does not match the `did:key` pattern |
+| 400 | `invalid_did` | `/did/{did}`, `/liveness/agent/{did}` | `did` does not match the `did:key` pattern |
 | 400 | `missing_model_hash` | `/route` | `model_hash` is missing |
 | 400 | `invalid_model_hash` | `/route` | `model_hash` is present but not 1-128 characters of `[A-Za-z0-9:_./-]` |
 | 400 | `invalid_precision` | `/route` | `precision` is present but not 1-32 characters of the same alphabet as `model_hash` |
 | 400 | `invalid_max_latency_ms` | `/route` | `max_latency_ms` is present but not an integer `1..600000` written in ASCII digits |
+| 400 | `invalid_room` | `/liveness/room/{room}` | `room` does not match `^[A-Za-z0-9._-]{1,128}$` |
 | 404 | `unknown_did` | `/did/{did}` | `did` is well-formed and a ledger is loaded, but that DID never posted a signed message in a logged room |
 | 404 | `ledger_not_built` | `/did/{did}` | `did` is well-formed, but NO ledger is loaded at all (no compact artifact bundled, or the A2 server started without `--ledger`) |
+| 404 | `unknown_room` | `/liveness/room/{room}` | `room` is well-formed and a liveness map is loaded, but that room has no entry in it |
+| 404 | `unknown_agent` | `/liveness/agent/{did}` | `did` is well-formed and a liveness map is loaded, but that DID has no entry in it |
+| 404 | `liveness_not_built` | `/liveness`, `/liveness/room/{room}`, `/liveness/agent/{did}` | NO compact liveness map is loaded at all (no artifact bundled) |
 | 404 | `not_found` | any unmatched path | no route matches |
 | 405 | `method_not_allowed` | any JSON route | method is not `GET`/`HEAD` (`Allow: GET, HEAD`) |
 | 414 | `path_too_long` | any route | request path over 256 characters |
@@ -386,6 +508,7 @@ Deep-link fragment grammar (using the base URL above): `#search?q=authentication
 - `/route`: `model_hash` ≤ 128 characters, `precision` ≤ 32 characters, `max_latency_ms` ≤
   600000 (accepted and echoed, never used), `k` ≤ 50, at most 5 `did:key:` mentions extracted per
   observation.
+- `/liveness/room/{room}`: `room` 1-128 characters of `[A-Za-z0-9._-]` (package LM3).
 - 60 requests per 60 seconds per client IP per Cloudflare location (rate limiter binding).
 - Workers Free plan: 100,000 requests/day, 10 ms CPU per invocation, 128 MB memory — see
   [`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §2. A deploy that exceeds the daily cap answers
@@ -457,6 +580,27 @@ validation error. Returns
 `content: [{"type": "text", "text": "<compact JSON, the same body as GET /route>"}]`, `isError`
 set only for `invalid_model_hash`, `invalid_precision`, and `offer_shape_missing` — a successful
 observations-only body (`candidates: []`, `ranking: null`, even with zero `observations`) is
+`isError: false`.
+
+**`liveness`** — room-class and agent-tier liveness (package LM3); the same bodies as
+`GET /liveness`, `GET /liveness/room/{room}` and `GET /liveness/agent/{did}`.
+
+```json
+{
+  "room": {"type": "string", "minLength": 1, "maxLength": 128},
+  "did": {"type": "string", "minLength": 1, "maxLength": 200}
+}
+```
+
+No argument returns the overview body; `room` alone returns the room body; `did` alone returns
+the agent body; both is `isError: true {"error": "one_of_room_or_did"}`, checked first, before
+any lookup. `room`/`did` are **not** validated against their own charset in the schema itself —
+like every other tool above, that check happens inside the handler instead, so a malformed value
+reaches the same app-level `{"error": "invalid_room"}` / `{"error": "invalid_did"}` bodies the
+routes answer. Returns
+`content: [{"type": "text", "text": "<compact JSON, the same body as the matching route>"}]`,
+`isError` set for `one_of_room_or_did`, `invalid_room`, `invalid_did`, `unknown_room`,
+`unknown_agent` and `liveness_not_built` — a successful overview/room/agent body is
 `isError: false`.
 
 ### Example `tools/call`
@@ -585,25 +729,29 @@ B2) build the reputation ledger, copying each artifact into place before deployi
 ```
 python -m openagentsearch.pipeline.publish --db PATH --root DIR --out DIR
 python -m openagentsearch.reputation.build --log-root LOGROOT --out did-ledger.jsonl --compact-out did-ledger-compact.json
+python -m openagentsearch.liveness.build --log-root LOGROOT --ledger did-ledger.jsonl --out liveness-v1.json --compact-out liveness-compact.json
 # copy did-ledger.jsonl to the Pages publish directory's index/ (alongside manifest.json etc.)
 # copy did-ledger-compact.json to <repo>/worker/index/ (gitignored build input)
+# copy liveness-compact.json to <repo>/worker/index/ (gitignored build input, package LM3)
 wsl.exe -e bash -lc 'cd <repo>/worker && npm ci && npx wrangler deploy'
 ```
 
 Authenticate first, once, either with `npx wrangler@4 login` (interactive OAuth) or by exporting
 `CLOUDFLARE_API_TOKEN` (a token scoped to *Workers Scripts: Edit*) for the deploy command only —
 never committed, never printed. After a deploy, verify it against the local `manifest.json` (and,
-optionally, the local compact ledger) this build was published from:
+optionally, the local compact ledger and compact liveness map) this build was published from:
 
 ```
-python scripts/verify_public.py https://openagentsearch.trustcoresystems.workers.dev --manifest path/to/manifest.json --ledger path/to/did-ledger-compact.json
+python scripts/verify_public.py https://openagentsearch.trustcoresystems.workers.dev --manifest path/to/manifest.json --ledger path/to/did-ledger-compact.json --liveness path/to/liveness-compact.json
 ```
 
 Prints one compact JSON line and exits `0` on a full match, `1` on the first mismatch found (named
 in the line), `2` on a bad argument. `--ledger` additionally checks `/healthz`'s `ledger.dids`/
 `generated_at` against the local file and that `GET BASE_URL/did/<the project's own DID>` answers
 `200` with the same `facts.first_seen_seq` the local file records — the B2 done-when in BUILDSPEC
-§3; omit it to run only the pre-B2 index checks. See
+§3; `--liveness` (package LM3) additionally checks `/healthz`'s `liveness.generated_at`/
+`liveness.rooms`/`liveness.agents` against the local file and that `GET BASE_URL/liveness` answers
+`200` with the same `counts`; omit either flag to skip its checks. See
 [`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §5 and §7 for the full refresh procedure and the
 one-time setup an operator (not this repository) must do before any of this can run against a real
 deploy.
