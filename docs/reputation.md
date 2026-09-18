@@ -131,6 +131,7 @@ actual row count, all raise `ValueError` and never return a partially-built `Led
 python -m openagentsearch.reputation.build --log-root DIR --out FILE [--now EPOCH]
     [--room ID ...] [--notes PATH] [--burst-window 60] [--burst-min-new 50]
     [--per-did-burst-per-minute 20] [--compact-out FILE]
+    [--max-ledger-bytes N] [--max-compact-bytes N]
 ```
 
 `--now` defaults to the wall clock, read exactly once. On success: one compact JSON report line
@@ -139,6 +140,17 @@ On any other failure (missing `--log-root`, a malformed log row that somehow sti
 oversize ledger, ...): one JSON `{"error": "..."}` line to stderr, exit `1`, nothing on stdout. A
 missing required flag exits `2` directly via `argparse`, before this command's own try/except ever
 runs.
+
+`--max-ledger-bytes` / `--max-compact-bytes` default to `ledger.DEFAULT_MAX_BYTES` (64 MiB) /
+`compact.DEFAULT_MAX_BYTES` (32 MiB) -- unchanged behaviour -- and are passed straight through as
+`write_ledger`/`write_compact_ledger`'s own `max_bytes=`; a value under 1 is an `argparse` error
+(exit `2`, same as a missing required flag). Raise them only for a one-off **evidence build**: a
+measurement over a log larger than the published-artifact guards below. Those guards protect the
+Pages/Worker artifacts this command routinely publishes; an evidence build that raises them is
+never itself published there (see "Publishing", item 1's full-log-vs-published-subset
+distinction). A tiny `--max-ledger-bytes`/`--max-compact-bytes` fails the same way an oversize
+ledger always has -- `LedgerSizeError`/`compact.CompactLedgerSizeError` on stderr, exit `1`,
+nothing written for that file.
 
 ## The compact artifact (`openagentsearch.reputation.compact`, package B2)
 

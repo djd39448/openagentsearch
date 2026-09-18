@@ -173,3 +173,109 @@ def test_cli_without_compact_out_keeps_the_baseline_report_shape(tmp_path: Path)
     payload = json.loads(proc.stdout.strip())
     assert "compact_bytes" not in payload
     assert not compact_out_path.exists()
+
+
+# ---------------------------------------------------------------------------------------------
+# Package SN, deliverable 2: --max-ledger-bytes / --max-compact-bytes
+# ---------------------------------------------------------------------------------------------
+
+
+def test_cli_tiny_max_ledger_bytes_fails_with_ledger_size_error_and_writes_nothing(
+    tmp_path: Path,
+):
+    root = install_fixture(tmp_path / "log")
+    out_path = tmp_path / "out" / "ledger.jsonl"
+    proc = subprocess.run(
+        [
+            sys.executable, "-m", "openagentsearch.reputation.build",
+            "--log-root", str(root), "--out", str(out_path), "--now", "1758000000.0",
+            "--max-ledger-bytes", "10",
+        ],
+        cwd=str(REPO), env=_subprocess_env(), capture_output=True, text=True,
+        timeout=SUBPROCESS_TIMEOUT,
+    )
+    assert proc.returncode == 1, (proc.stdout, proc.stderr)
+    assert proc.stdout == ""
+    error_payload = json.loads(proc.stderr.strip())
+    assert error_payload["error"].startswith("LedgerSizeError:")
+    assert not out_path.exists()
+
+
+def test_cli_tiny_max_compact_bytes_fails_with_ledger_size_error_and_writes_nothing(
+    tmp_path: Path,
+):
+    root = install_fixture(tmp_path / "log")
+    out_path = tmp_path / "out" / "ledger.jsonl"
+    compact_out_path = tmp_path / "out" / "ledger-compact.json"
+    proc = subprocess.run(
+        [
+            sys.executable, "-m", "openagentsearch.reputation.build",
+            "--log-root", str(root), "--out", str(out_path), "--now", "1758000000.0",
+            "--compact-out", str(compact_out_path), "--max-compact-bytes", "10",
+        ],
+        cwd=str(REPO), env=_subprocess_env(), capture_output=True, text=True,
+        timeout=SUBPROCESS_TIMEOUT,
+    )
+    assert proc.returncode == 1, (proc.stdout, proc.stderr)
+    assert proc.stdout == ""
+    error_payload = json.loads(proc.stderr.strip())
+    assert error_payload["error"].startswith("CompactLedgerSizeError:")
+    # --out is written first, under the (untouched, generous) default --max-ledger-bytes, before
+    # --compact-out is even attempted -- so the failure here is --compact-out's alone, and --out
+    # is left as a normal, complete ledger file, not rolled back.
+    assert out_path.is_file()
+    assert not compact_out_path.exists()
+
+
+def test_cli_generous_max_ledger_and_compact_bytes_succeed(tmp_path: Path):
+    root = install_fixture(tmp_path / "log")
+    out_path = tmp_path / "out" / "ledger.jsonl"
+    compact_out_path = tmp_path / "out" / "ledger-compact.json"
+    proc = subprocess.run(
+        [
+            sys.executable, "-m", "openagentsearch.reputation.build",
+            "--log-root", str(root), "--out", str(out_path), "--now", "1758000000.0",
+            "--compact-out", str(compact_out_path),
+            "--max-ledger-bytes", "67108864", "--max-compact-bytes", "33554432",
+        ],
+        cwd=str(REPO), env=_subprocess_env(), capture_output=True, text=True,
+        timeout=SUBPROCESS_TIMEOUT,
+    )
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    payload = json.loads(proc.stdout.strip())
+    assert out_path.is_file() and out_path.stat().st_size == payload["bytes"]
+    assert compact_out_path.is_file()
+
+
+def test_cli_max_ledger_bytes_zero_exits_2(tmp_path: Path):
+    root = install_fixture(tmp_path / "log")
+    out_path = tmp_path / "out" / "ledger.jsonl"
+    proc = subprocess.run(
+        [
+            sys.executable, "-m", "openagentsearch.reputation.build",
+            "--log-root", str(root), "--out", str(out_path), "--now", "1758000000.0",
+            "--max-ledger-bytes", "0",
+        ],
+        cwd=str(REPO), env=_subprocess_env(), capture_output=True, text=True,
+        timeout=SUBPROCESS_TIMEOUT,
+    )
+    assert proc.returncode == 2, (proc.stdout, proc.stderr)
+    assert proc.stdout == ""
+    assert not out_path.exists()
+
+
+def test_cli_max_compact_bytes_zero_exits_2(tmp_path: Path):
+    root = install_fixture(tmp_path / "log")
+    out_path = tmp_path / "out" / "ledger.jsonl"
+    proc = subprocess.run(
+        [
+            sys.executable, "-m", "openagentsearch.reputation.build",
+            "--log-root", str(root), "--out", str(out_path), "--now", "1758000000.0",
+            "--max-compact-bytes", "0",
+        ],
+        cwd=str(REPO), env=_subprocess_env(), capture_output=True, text=True,
+        timeout=SUBPROCESS_TIMEOUT,
+    )
+    assert proc.returncode == 2, (proc.stdout, proc.stderr)
+    assert proc.stdout == ""
+    assert not out_path.exists()

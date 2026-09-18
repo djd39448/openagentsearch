@@ -18,6 +18,13 @@ package publication, or hosted release exists.
   network. Answers yellowpaper #58's REPRODUCED bar: an immutable snapshot, compressed and
   decompressed sha256s, a capture/gap manifest, the exact invocation, and the expected output hash.
   See [docs/reputation.md](./docs/reputation.md#snapshots-reproducible-evidence).
+- `openagentsearch.reputation.build` (package SN, deliverable 2) gains `--max-ledger-bytes`/
+  `--max-compact-bytes` (default: `ledger.DEFAULT_MAX_BYTES`/`compact.DEFAULT_MAX_BYTES`, i.e.
+  unchanged behaviour), passed straight through to `write_ledger`/`write_compact_ledger` as
+  `max_bytes=`; a value under 1 is an `argparse` error, exit 2. Purpose: a one-off **evidence
+  build** over a log larger than the published-artifact size guards -- those guards protect the
+  Pages/Worker artifacts this command routinely publishes, and an evidence build that raises them
+  is never itself published there. See [docs/reputation.md](./docs/reputation.md#the-cli).
 
 ## 0.3.0 - 2026-09-17
 
