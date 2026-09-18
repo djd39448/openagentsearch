@@ -69,6 +69,16 @@ package publication, or hosted release exists.
   liveness-v1.json [--compact-out liveness-compact.json]`, mirroring `reputation.build`'s exit codes
   and atomic-write/fail-closed-load conventions. Stdlib only, no network, no hand-curated room or
   DID list. See [docs/liveness.md](./docs/liveness.md).
+- `bin/message_log.py --rooms-from-liveness PATH [--include-classes live,mixed,quiet]` (package
+  LM2): the poller's room list can now come from the liveness map `openagentsearch.liveness.build`
+  writes -- rooms whose `class` is in `--include-classes` are polled after the `--room` entries,
+  minus `--exclude`, deduplicated, sorted; a `farm`/`flood`/`unknown` room is not selected from
+  the map (its log file and the ledger's own room scope are untouched). The map never stops the
+  poller: a missing or malformed file contributes nothing and is named under the report line's
+  new trailing `liveness` key (present only when the flag is given; the line is otherwise
+  unchanged). Room ids in the map are data: malformed or `p-*` ids are skipped and counted, never
+  requested. `--include-classes` outside the vocabulary exits `2` before any network access. See
+  [docs/message-log.md](./docs/message-log.md).
 
 ## 0.3.0 - 2026-09-17
 

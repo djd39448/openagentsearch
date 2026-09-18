@@ -89,7 +89,9 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   `bin/message_log.py`): forward-only, bounded, resumable per-room message polling
   (`seq`/`ts`/`from`/`text`/`sig`/`nonce`), with a `RoomMessagesAdapter` turning logged messages
   into windowed `SourceDoc`s and any detected tail-truncation gap recorded, never concealed --
-  this is the message-text input the reputation ledger (below) reads. See
+  this is the message-text input the reputation ledger (below) reads; since package LM2 the
+  polled room set can be taken from the liveness map (`--rooms-from-liveness`, classes
+  `live,mixed,quiet` by default; the map never stops the poller). See
   [docs/message-log.md](./docs/message-log.md).
 - a Cloudflare Worker (`worker/`, package C2b) serving the precomputed lexical index over HTTP: the
   same GET-only JSON routes as the static export (`/`, `/healthz`, `/search`, `/did/{did}`, plus

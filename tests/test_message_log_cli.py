@@ -14,6 +14,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+import pytest
+
 from openagentsearch.pipeline.ingest import FetchResponse
 from openagentsearch.sources.technocore_messages import MessageLog
 
@@ -666,3 +668,178 @@ def test_loop_with_preexisting_stop_file_exits_zero_after_exactly_one_sweep(tmp_
         assert report["new"] == 1
     finally:
         server.stop()
+
+
+# ================================================== 8. --rooms-from-liveness (package LM2)
+
+
+def _write_liveness(path: Path, rooms: dict, *, schema: str = "openagentsearch.liveness/1") -> None:
+    body = {"schema": schema, "generated_at": "2026-09-19T08:30:00Z", "rooms": rooms}
+    path.write_text(json.dumps(body), encoding="utf-8")
+
+
+def _room_entry(room_class: str) -> dict:
+    return {"class": room_class, "class_all": room_class, "signals": {}, "decided_on": [], "facts": {}}
+
+
+def test_rooms_from_liveness_selects_included_classes_sorted_and_skips_bad_ids(tmp_path):
+    path = tmp_path / "liveness-v1.json"
+    _write_liveness(path, {
+        "zeta": _room_entry("live"),
+        "alpha": _room_entry("mixed"),
+        "quiet-one": _room_entry("quiet"),
+        "farm-one": _room_entry("farm"),
+        "flood-one": _room_entry("flood"),
+        "unknown-one": _room_entry("unknown"),
+        "p-secret": _room_entry("live"),          # private: skipped, never selected
+        "bad id!": _room_entry("live"),           # malformed id: skipped
+        "no-class": {"facts": {}},                # no class: skipped
+        "odd-class": _room_entry("shouting"),     # outside the vocabulary: skipped
+    })
+    result = message_log.rooms_from_liveness(path, ("live", "mixed", "quiet"))
+    assert result.error is None
+    assert result.rooms == ("alpha", "quiet-one", "zeta")
+    assert result.skipped == 4
+    assert result.generated_at == "2026-09-19T08:30:00Z"
+    only_live = message_log.rooms_from_liveness(path, ("live",))
+    assert only_live.rooms == ("zeta",)
+
+
+def test_rooms_from_liveness_accepts_the_compact_schema_too(tmp_path):
+    path = tmp_path / "liveness-compact.json"
+    _write_liveness(path, {"r1": _room_entry("live")}, schema="openagentsearch.liveness-compact/1")
+    assert message_log.rooms_from_liveness(path, ("live",)).rooms == ("r1",)
+
+
+def test_rooms_from_liveness_never_raises_on_a_missing_or_malformed_map(tmp_path):
+    missing = message_log.rooms_from_liveness(tmp_path / "nope.json", ("live",))
+    assert missing.rooms == () and missing.error is not None and "unreadable" in missing.error
+
+    not_json = tmp_path / "not.json"
+    not_json.write_bytes(b"{not json")
+    broken = message_log.rooms_from_liveness(not_json, ("live",))
+    assert broken.rooms == () and broken.error is not None and "unreadable" in broken.error
+
+    wrong_schema = tmp_path / "wrong.json"
+    _write_liveness(wrong_schema, {"r1": _room_entry("live")}, schema="something/else")
+    schema = message_log.rooms_from_liveness(wrong_schema, ("live",))
+    assert schema.rooms == () and schema.error is not None and "schema" in schema.error
+
+    no_rooms = tmp_path / "norooms.json"
+    no_rooms.write_text(
+        json.dumps({"schema": "openagentsearch.liveness/1", "rooms": []}), encoding="utf-8"
+    )
+    shapeless = message_log.rooms_from_liveness(no_rooms, ("live",))
+    assert shapeless.rooms == () and shapeless.error is not None and "rooms" in shapeless.error
+
+    oversize = tmp_path / "big.json"
+    oversize.write_bytes(b"[" + b" " * (message_log.LIVENESS_MAX_BYTES + 1) + b"]")
+    big = message_log.rooms_from_liveness(oversize, ("live",))
+    assert big.rooms == () and big.error is not None and "oversize" in big.error
+
+
+def test_parse_include_classes_validates_against_the_vocabulary():
+    assert message_log.parse_include_classes("live,mixed,quiet") == ("live", "mixed", "quiet")
+    assert message_log.parse_include_classes(" live , farm ") == ("live", "farm")
+    with pytest.raises(ValueError, match="shouting"):
+        message_log.parse_include_classes("live,shouting")
+    with pytest.raises(ValueError):
+        message_log.parse_include_classes(" , ")
+
+
+def test_main_polls_map_rooms_after_explicit_minus_exclude_and_reports_liveness(tmp_path, capsys):
+    liveness_path = tmp_path / "liveness-v1.json"
+    _write_liveness(liveness_path, {
+        "map-live": _room_entry("live"),
+        "map-quiet": _room_entry("quiet"),
+        "map-farm": _room_entry("farm"),
+        "map-flood": _room_entry("flood"),
+        "explicit-a": _room_entry("live"),      # also given via --room: deduplicated, explicit order kept
+        "dropped": _room_entry("live"),         # also given via --exclude: never requested
+    })
+    server = _Server({
+        "/r/explicit-a?format=json&limit=200": _payload_bytes("explicit-a", 1, 1, [_msg(1)]),
+        "/r/map-live?format=json&limit=200": _payload_bytes("map-live", 1, 1, [_msg(1)]),
+        "/r/map-quiet?format=json&limit=200": _payload_bytes("map-quiet", 1, 1, [_msg(1)]),
+    })
+    try:
+        exit_code = message_log.main([
+            "--root", str(tmp_path / "out"), "--rooms-jsonl", str(tmp_path / "unused.jsonl"),
+            "--room", "explicit-a", "--top", "0", "--exclude", "dropped",
+            "--rooms-from-liveness", str(liveness_path),
+            "--once", "--interval", "0", "--base-url", server.base,
+        ])
+        assert exit_code == 0
+        assert server.seen == [
+            "/r/explicit-a?format=json&limit=200",
+            "/r/map-live?format=json&limit=200",
+            "/r/map-quiet?format=json&limit=200",
+        ]
+    finally:
+        server.stop()
+    out_lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert len(out_lines) == 1
+    report = json.loads(out_lines[0])
+    assert list(report) == [
+        "rooms", "new", "duplicates", "gaps", "retries", "errors", "seconds", "liveness",
+    ]
+    assert report["rooms"] == 3
+    assert report["liveness"] == {
+        "rooms": 4, "skipped": 0, "error": None, "generated_at": "2026-09-19T08:30:00Z",
+    }
+
+
+def test_main_with_a_missing_map_still_polls_explicit_rooms_and_names_the_error(tmp_path, capsys):
+    server = _Server({
+        "/r/explicit-a?format=json&limit=200": _payload_bytes("explicit-a", 1, 1, [_msg(1)]),
+    })
+    try:
+        exit_code = message_log.main([
+            "--root", str(tmp_path / "out"), "--rooms-jsonl", str(tmp_path / "unused.jsonl"),
+            "--room", "explicit-a", "--top", "0",
+            "--rooms-from-liveness", str(tmp_path / "does-not-exist.json"),
+            "--once", "--interval", "0", "--base-url", server.base,
+        ])
+        assert exit_code == 0
+        assert server.seen == ["/r/explicit-a?format=json&limit=200"]
+    finally:
+        server.stop()
+    report = json.loads(capsys.readouterr().out.strip())
+    assert report["rooms"] == 1
+    assert report["liveness"]["rooms"] == 0
+    assert report["liveness"]["error"] is not None and "unreadable" in report["liveness"]["error"]
+    assert report["liveness"]["generated_at"] is None
+
+
+def test_main_without_the_flag_keeps_the_report_line_free_of_a_liveness_key(tmp_path, capsys):
+    server = _Server({
+        "/r/room-a?format=json&limit=200": _payload_bytes("room-a", 1, 1, [_msg(1)]),
+    })
+    try:
+        exit_code = message_log.main([
+            "--root", str(tmp_path / "out"), "--rooms-jsonl", str(tmp_path / "unused.jsonl"),
+            "--room", "room-a", "--top", "0", "--once", "--interval", "0",
+            "--base-url", server.base,
+        ])
+        assert exit_code == 0
+    finally:
+        server.stop()
+    report = json.loads(capsys.readouterr().out.strip())
+    assert "liveness" not in report
+
+
+def test_main_with_a_bad_include_class_exits_2_with_json_error_and_no_request(tmp_path, capsys):
+    liveness_path = tmp_path / "liveness-v1.json"
+    _write_liveness(liveness_path, {"r1": _room_entry("live")})
+    exit_code = message_log.main([
+        "--root", str(tmp_path), "--rooms-jsonl", str(tmp_path / "rooms.jsonl"),
+        "--room", "x", "--top", "0", "--once",
+        "--rooms-from-liveness", str(liveness_path), "--include-classes", "live,shouting",
+    ])
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    error = json.loads([line for line in captured.err.splitlines() if line.strip()][0])
+    assert set(error) == {"error"}
+    assert "shouting" in error["error"]
+    assert not (tmp_path / "message-log-state.json").exists()

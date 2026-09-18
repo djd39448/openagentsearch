@@ -30,11 +30,25 @@ KILL SWITCH
 Create a file named STOP inside `--root` to make a running `--loop` invocation exit at the next
 check (the same convention `bin/crawl.py` uses).
 
+ROOMS FROM THE LIVENESS MAP (package LM2)
+-----------------------------------------
+`--rooms-from-liveness PATH` adds every room whose class in a `liveness-v1.json` (or the compact
+variant) built by `openagentsearch.liveness.build` is one of `--include-classes` (default
+`live,mixed,quiet`) to the explicit room list -- after `--room` entries, minus `--exclude` entries,
+deduplicated, sorted. A map that is missing, unreadable, oversized, or malformed NEVER aborts the
+sweep: the explicit `--room` list still runs and the sweep's report line names the problem under
+`liveness.error` (the map contributes nothing that day -- fail closed for the map, never for the
+poller). A `farm`/`flood`/`unknown` room in the map is simply not selected; its log file on disk is
+untouched. Room ids read from the map are data: a malformed id or a `p-*` id is skipped and counted
+(`liveness.skipped`), never raised on.
+
 Usage
 -----
     python bin/message_log.py --root DIR --rooms-jsonl PATH --once
     python bin/message_log.py --root DIR --rooms-jsonl PATH --room some-room --top 0 --once
     python bin/message_log.py --root DIR --rooms-jsonl PATH --loop --sleep 300 --max-runtime 3600
+    python bin/message_log.py --root DIR --rooms-jsonl PATH --room builders --top 0 \
+        --rooms-from-liveness liveness-v1.json --include-classes live,mixed,quiet --once
 """
 
 from __future__ import annotations
@@ -55,6 +69,7 @@ if str(_SRC) not in sys.path:
 
 from openagentsearch.pipeline.ingest import Fetcher, FetchResponse, urllib_fetch  # noqa: E402
 from openagentsearch.sources.technocore_messages import (  # noqa: E402
+    _ROOM_ID_RE,
     MessageLog,
     parse_room_page,
     select_rooms,
@@ -67,6 +82,98 @@ DEFAULT_RETRIES = 2
 DEFAULT_RETRY_BACKOFF_S = 5.0
 MAX_BYTES = 5_000_000
 SECONDS_PER_DAY = 86400.0
+
+# Package LM2: the liveness map (`openagentsearch.liveness.build`) as a room source. The schemas
+# and the class vocabulary are repeated here as literals rather than imported, so this script
+# keeps working with only `sources.technocore_messages` on the path (it never imports the
+# liveness package -- the map is a plain JSON file to it). A map exceeding LIVENESS_MAX_BYTES
+# is treated as unreadable, never loaded.
+LIVENESS_SCHEMAS = ("openagentsearch.liveness/1", "openagentsearch.liveness-compact/1")
+ROOM_CLASS_VOCABULARY = ("live", "mixed", "quiet", "farm", "flood", "unknown")
+DEFAULT_INCLUDE_CLASSES = ("live", "mixed", "quiet")
+LIVENESS_MAX_BYTES = 64 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class LivenessRooms:
+    """What `rooms_from_liveness()` read: `rooms` is the sorted, deduplicated tuple of room ids
+    whose class was one of the requested classes (empty when `error` is set); `skipped` counts
+    map entries dropped as data problems (a malformed room id, a `p-*` id, a class outside the
+    vocabulary); `error` is `None` on a successful read, else one short reason (the map is then
+    treated as contributing nothing); `generated_at` is the map's own value when readable."""
+
+    rooms: tuple[str, ...]
+    skipped: int
+    error: str | None
+    generated_at: str | None
+
+
+def rooms_from_liveness(path: Path, include_classes: Sequence[str]) -> LivenessRooms:
+    """Read the liveness map at `path` and return the rooms whose `class` is in
+    `include_classes`. Never raises: a missing, oversized, undecodable, non-object, wrong-schema
+    or shapeless file comes back as `LivenessRooms((), 0, "<reason>", None)` so the caller can
+    carry on with its explicit rooms and report the reason.
+
+    NOT guaranteed: this does not validate the map beyond what it needs (`schema`, `rooms` being an
+    object of objects with a string `class`) -- `openagentsearch.liveness.build.load_liveness` is
+    the fail-closed loader; this is a tolerant reader of one field, by design, because the
+    poller must never stop polling Dave's explicit rooms because the map had a bad day.
+    """
+    file_path = Path(path)
+    try:
+        size = file_path.stat().st_size
+    except OSError as exc:
+        return LivenessRooms((), 0, f"unreadable: {type(exc).__name__}: {exc}", None)
+    if size > LIVENESS_MAX_BYTES:
+        return LivenessRooms((), 0, f"oversize: {size} bytes over {LIVENESS_MAX_BYTES}", None)
+    try:
+        obj = json.loads(file_path.read_bytes().decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return LivenessRooms((), 0, f"unreadable: {type(exc).__name__}: {exc}", None)
+    if not isinstance(obj, dict):
+        return LivenessRooms((), 0, "malformed: top level is not an object", None)
+    schema = obj.get("schema")
+    if schema not in LIVENESS_SCHEMAS:
+        return LivenessRooms((), 0, f"malformed: unexpected schema {schema!r}", None)
+    generated_at = obj.get("generated_at")
+    generated_at = generated_at if isinstance(generated_at, str) else None
+    rooms_obj = obj.get("rooms")
+    if not isinstance(rooms_obj, dict):
+        return LivenessRooms((), 0, "malformed: rooms is not an object", generated_at)
+    wanted = set(include_classes)
+    selected: set[str] = set()
+    skipped = 0
+    for room_id, entry in rooms_obj.items():
+        if not isinstance(entry, dict) or not isinstance(entry.get("class"), str):
+            skipped += 1
+            continue
+        room_class = entry["class"]
+        if room_class not in ROOM_CLASS_VOCABULARY:
+            skipped += 1
+            continue
+        if room_class not in wanted:
+            continue
+        if not isinstance(room_id, str) or not _ROOM_ID_RE.match(room_id) or room_id.startswith("p-"):
+            skipped += 1
+            continue
+        selected.add(room_id)
+    return LivenessRooms(tuple(sorted(selected)), skipped, None, generated_at)
+
+
+def parse_include_classes(raw: str) -> tuple[str, ...]:
+    """`--include-classes` (a comma-separated list) as a tuple, validated against
+    `ROOM_CLASS_VOCABULARY`; raises `ValueError` naming the first bad item (the CLI turns that
+    into exit 2, like a bad `--room`)."""
+    items = tuple(item.strip() for item in raw.split(",") if item.strip())
+    if not items:
+        raise ValueError("--include-classes must name at least one class")
+    for item in items:
+        if item not in ROOM_CLASS_VOCABULARY:
+            raise ValueError(
+                f"unknown room class in --include-classes: {item!r} "
+                f"(known: {', '.join(ROOM_CLASS_VOCABULARY)})"
+            )
+    return items
 
 
 @dataclass(frozen=True)
@@ -236,8 +343,13 @@ def run_sweep(
     )
 
 
-def _report_to_json(report: SweepReport) -> dict[str, object]:
-    return {
+def _report_to_json(
+    report: SweepReport, liveness: LivenessRooms | None = None
+) -> dict[str, object]:
+    """The report line. `liveness` (package LM2) adds ONE trailing key, `liveness`, only when
+    `--rooms-from-liveness` was given, so a report produced without the flag is byte-identical
+    to what it was before LM2."""
+    out: dict[str, object] = {
         "rooms": report.rooms,
         "new": report.new,
         "duplicates": report.duplicates,
@@ -246,6 +358,14 @@ def _report_to_json(report: SweepReport) -> dict[str, object]:
         "errors": dict(report.errors),
         "seconds": report.seconds,
     }
+    if liveness is not None:
+        out["liveness"] = {
+            "rooms": len(liveness.rooms),
+            "skipped": liveness.skipped,
+            "error": liveness.error,
+            "generated_at": liveness.generated_at,
+        }
+    return out
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -271,6 +391,24 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_BASE_URL,
         help="override for tests only (default: the live host)",
     )
+    parser.add_argument(
+        "--rooms-from-liveness",
+        default=None,
+        dest="rooms_from_liveness",
+        help=(
+            "a liveness-v1.json (openagentsearch.liveness.build); its rooms whose class is in "
+            "--include-classes are polled in addition to --room, minus --exclude (package LM2)"
+        ),
+    )
+    parser.add_argument(
+        "--include-classes",
+        default=",".join(DEFAULT_INCLUDE_CLASSES),
+        dest="include_classes",
+        help=(
+            "comma-separated room classes taken from --rooms-from-liveness "
+            f"(default: {','.join(DEFAULT_INCLUDE_CLASSES)}; known: {','.join(ROOM_CLASS_VOCABULARY)})"
+        ),
+    )
     return parser
 
 
@@ -291,10 +429,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     clock = time.time
     sleep = time.sleep
 
+    liveness: LivenessRooms | None = None
     try:
+        explicit: list[str] = list(args.rooms)
+        if args.rooms_from_liveness is not None:
+            include_classes = parse_include_classes(args.include_classes)
+            liveness = rooms_from_liveness(Path(args.rooms_from_liveness), include_classes)
+            excluded = set(args.exclude)
+            for room_id in liveness.rooms:
+                if room_id not in excluded and room_id not in explicit:
+                    explicit.append(room_id)
         rooms = select_rooms(
             Path(args.rooms_jsonl),
-            explicit=tuple(args.rooms),
+            explicit=tuple(explicit),
             top=args.top,
             active_within_s=active_within_s,
             now=clock(),
@@ -323,7 +470,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     retries=args.retries, retry_backoff_s=args.retry_backoff,
                     base_url=args.base_url,
                 )
-                print(json.dumps(_report_to_json(report), separators=(",", ":")), flush=True)
+                print(
+                    json.dumps(_report_to_json(report, liveness), separators=(",", ":")),
+                    flush=True,
+                )
                 if (root / "STOP").exists():
                     break
                 if clock() - loop_start >= args.max_runtime:
@@ -337,7 +487,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             retries=args.retries, retry_backoff_s=args.retry_backoff,
             base_url=args.base_url,
         )
-        print(json.dumps(_report_to_json(report), separators=(",", ":")), flush=True)
+        print(json.dumps(_report_to_json(report, liveness), separators=(",", ":")), flush=True)
         return 0
     except Exception as exc:
         print(

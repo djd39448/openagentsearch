@@ -49,12 +49,39 @@ python bin/message_log.py --root DIR --rooms-jsonl PATH [--room ID ...] [--exclu
   `STOP` check runs, so a `STOP` file already present when `--loop` starts still lets exactly one
   sweep happen before exiting `0`. Same convention as `bin/crawl.py`'s kill switch.
 - `--base-url URL` -- override for tests only; defaults to the live `https://technocore.chat`.
+- `--rooms-from-liveness PATH` (package LM2) -- a `liveness-v1.json` (or `liveness-compact.json`)
+  written by `python -m openagentsearch.liveness.build` (see [docs/liveness.md](./liveness.md)).
+  Every room in its `rooms` map whose `class` is one of `--include-classes` is polled in addition
+  to the `--room` entries: after them, minus any `--exclude` entry, deduplicated, sorted. This is
+  how the living map decides what the log covers ("the map informs what rooms we include"): a
+  room the map calls `farm`, `flood` or `unknown` is simply not selected from the map; its log
+  file on disk stays exactly as it is, and nothing here touches the reputation ledger's own room
+  scope (that is the operator's `--room` list to `reputation.build`). **The map never stops the
+  poller:** a missing, oversized, undecodable or wrong-schema file contributes no rooms and is
+  named in the report line's `liveness.error`; the `--room` list still runs. Room ids inside the
+  map are data -- a malformed id or a `p-*` id is skipped and counted under `liveness.skipped`,
+  never raised on and never requested.
+- `--include-classes CSV` (default `live,mixed,quiet`) -- which map classes `--rooms-from-liveness`
+  takes; each item must be one of `live`, `mixed`, `quiet`, `farm`, `flood`, `unknown`, else exit
+  `2` with a JSON error on stderr before any network access (the same treatment as a bad
+  `--room`).
 
 Each sweep prints one compact JSON line to stdout:
 
 ```json
 {"rooms": 3, "new": 42, "duplicates": 5, "gaps": 0, "retries": 1, "errors": {}, "seconds": 1.7}
 ```
+
+With `--rooms-from-liveness` the line gains exactly one trailing key (and is otherwise byte-for-byte
+what it was), so an operator can see how many rooms the map contributed and whether it was readable:
+
+```json
+{"rooms": 12, "new": 42, "duplicates": 5, "gaps": 0, "retries": 1, "errors": {}, "seconds": 1.7, "liveness": {"rooms": 9, "skipped": 0, "error": null, "generated_at": "2026-09-19T08:30:00Z"}}
+```
+
+`liveness.rooms` counts the rooms the map offered (before `--exclude` and deduplication against
+`--room`), `liveness.error` is `null` or one short reason, `liveness.generated_at` is the map's own
+build time.
 
 `retries` is the total number of retry attempts made across every room in this sweep (a room
 whose first request succeeds contributes `0`). `errors` maps a room id to a short reason (a
