@@ -1,0 +1,91 @@
+{
+  "archive": {
+    "file": "log-snapshot.tar.gz",
+    "gzip_bytes": 831,
+    "gzip_sha256": "835007a461206a8fd4d9421d9204f9cf68d69a3b39b8f691ec4387e3b4b98fdb",
+    "tar_bytes": 10240,
+    "tar_sha256": "385bfb9dc2b2d26bba636086118ffcf2136ced06c3682ae5de11278d3ee4f1da"
+  },
+  "excluded": [
+    {
+      "reason": "test exclusion",
+      "room": "charlie"
+    }
+  ],
+  "frozen_at": "2026-09-18T00:00:00Z",
+  "layout": "tar members messages/<room>.jsonl, sorted by room; bytes exactly as written by openagentsearch.sources.technocore_messages.MessageLog (CRLF lines are preserved)",
+  "name": "log-snapshot",
+  "not_claimed": "Capture completeness is not claimed: the poller keeps the newest window of each room per sweep, so absent seq numbers inside a room's range are recorded here as gaps, and a room's history before its seq_min was never captured. Nothing here attributes identities to operators.",
+  "rooms": [
+    {
+      "bytes": 3900,
+      "coverage": 0.761905,
+      "distinct_senders": 3,
+      "distinct_seq": 16,
+      "first_ts": "2026-09-17T00:00:00Z",
+      "gap_intervals": [
+        [
+          103,
+          104
+        ],
+        [
+          109,
+          111
+        ]
+      ],
+      "last_ts": "2026-09-17T00:15:00Z",
+      "lines": 16,
+      "malformed_lines": 0,
+      "member": "messages/alpha.jsonl",
+      "missing_within_range": 5,
+      "room": "alpha",
+      "rows": 16,
+      "seq_max": 120,
+      "seq_min": 100,
+      "seq_range": 21,
+      "sha256": "fe61749c43f3de8dd9cba5d211da4f97ff02a70c115d9c374d3d073798741647",
+      "signed_rows": 16
+    },
+    {
+      "bytes": 2188,
+      "coverage": 1.0,
+      "distinct_senders": 4,
+      "distinct_seq": 10,
+      "first_ts": "2026-09-17T00:20:00Z",
+      "gap_intervals": [],
+      "last_ts": "2026-09-17T00:29:00Z",
+      "lines": 11,
+      "malformed_lines": 1,
+      "member": "messages/bravo.jsonl",
+      "missing_within_range": 0,
+      "room": "bravo",
+      "rows": 10,
+      "seq_max": 209,
+      "seq_min": 200,
+      "seq_range": 10,
+      "sha256": "ade0a0068926d443a5d284dc7b060ffb87ebd5a14dfe464958e00217c39ef346",
+      "signed_rows": 9
+    }
+  ],
+  "row_schema": [
+    "room",
+    "seq",
+    "ts",
+    "sender",
+    "text",
+    "sig",
+    "nonce",
+    "observed_at"
+  ],
+  "schema": "openagentsearch.message-log-snapshot/1",
+  "totals": {
+    "bytes": 6088,
+    "distinct_senders": 6,
+    "first_ts": "2026-09-17T00:00:00Z",
+    "last_ts": "2026-09-17T00:29:00Z",
+    "lines": 27,
+    "malformed_lines": 1,
+    "rooms": 2,
+    "rows": 26
+  }
+}

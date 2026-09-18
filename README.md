@@ -126,6 +126,12 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   `GET /did/{did}` uses. Served identically on the A2 server and the Worker (plus a `route` MCP
   tool); the Worker's copy of `offer_shape` is a generated, committed file
   (`worker/src/offer-shape.json`). See [docs/api.md](./docs/api.md).
+- reproducible reputation-ledger evidence (`scripts/freeze_message_log.py freeze|verify|extract`,
+  stdlib-only and standalone): freezes the message log that feeds `reputation.build` into one
+  immutable, sha256-pinned archive plus a manifest recording per-room byte/row/seq-gap coverage
+  and sender/timestamp summaries, so a third party can download one archive, verify it against its
+  manifest, extract it, and rebuild the published ledger to the published hash. See
+  [docs/reputation.md](./docs/reputation.md#snapshots-reproducible-evidence).
 
 ## What is not wired yet
 

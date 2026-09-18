@@ -176,6 +176,69 @@ count that disagrees with the actual row count -- all raise `ValueError`), retur
 `docs/api.md`'s contract, which `openagentsearch.api.did`, the Cloudflare Worker's
 `lookupDid()`/`did_lookup` tool, and the local MCP relay all answer identically.
 
+## Snapshots (reproducible evidence)
+
+A **snapshot** is an immutable, third-party-verifiable freeze of this ledger's INPUT -- the
+technocore.chat message log itself (`<log-root>/messages/<room>.jsonl`, written by
+`openagentsearch.sources.technocore_messages.MessageLog`) -- not of the ledger it produces.
+yellowpaper #58's reviewers (`retardio73-boop/flop-conformance-lab`) retain an empirical lane as
+REPRODUCED only when a published ledger ships alongside exactly this: an immutable input archive,
+a sha256 of both its compressed and decompressed bytes, a capture manifest (room, seq range,
+missing-seq/gap manifest, observed time window), the exact invocation, and the expected output
+hash. `reputation.build` is already deterministic given `--now`; `scripts/freeze_message_log.py`
+(stdlib only, standalone -- it imports nothing from `src/`, so a downloader can run `verify`/
+`extract` with no repository checkout beyond that one file) supplies the missing half.
+
+Three commands:
+
+```
+python scripts/freeze_message_log.py freeze --log-root DIR --out-dir DIR --name NAME
+    [--exclude ROOM]... [--exclude-reason TEXT] [--frozen-at ISO8601Z] [--room ID]...
+python scripts/freeze_message_log.py verify --archive NAME.tar.gz --manifest NAME.manifest.json
+python scripts/freeze_message_log.py extract --archive NAME.tar.gz --into DIR
+```
+
+`freeze` writes `NAME.tar.gz` -- a deterministic gzip (`mtime=0`, no stored filename) of a
+deterministic tar (fixed `TarInfo` fields, `GNU_FORMAT`, one `messages/<room>.jsonl` member per
+included room in sorted order, room bytes copied exactly as they sit on disk -- CRLF line endings
+and all, never normalised or re-serialised) -- and `NAME.manifest.json`, recording the archive's
+own `gzip_sha256`/`tar_sha256`, and, per room: byte/line/row counts, distinct/min/max `seq` and
+every gap strictly inside that range (`gap_intervals`), first/last `ts`, distinct senders, and
+signed-row count. Two freezes of the same input bytes with the same `--frozen-at` produce
+byte-identical output. `--room`/`--exclude` scope which rooms go in, same convention as
+`reputation.build`'s own `--room`; refuses to overwrite an existing archive or manifest.
+
+`verify` recomputes every recomputable field straight from the archive's own bytes -- never
+trusting the manifest for anything it can independently check -- and reports `{"ok", "mismatches",
+"rooms", "unchecked"}`. `unchecked` always names `frozen_at`/`name`/`excluded`/`not_claimed`/
+`layout`/`row_schema`: labels and prose the archive's bytes alone cannot prove or disprove, so
+`verify` reports them without ever failing on them. Every tar member is walked with the same
+safety checks `extract` applies (refusing absolute paths, `..`, links, directories, and anything
+outside `messages/*.jsonl`) before anything is trusted from it.
+
+**What the manifest guarantees:** that the published archive's bytes hash to the published
+`gzip_sha256`/`tar_sha256`, and that every per-room statistic was computed from exactly those
+bytes (`sha256`, `rows`, `gap_intervals`, etc. all recomputable by `verify`, and only by `verify`
+-- not asserted, checked). **What it does not guarantee** -- the manifest's own `not_claimed`
+field, verbatim: "Capture completeness is not claimed: the poller keeps the newest window of each
+room per sweep, so absent seq numbers inside a room's range are recorded here as gaps, and a
+room's history before its seq_min was never captured. Nothing here attributes identities to
+operators." A snapshot is also not a signature verification -- see "What this is NOT" below.
+
+**Reproducing a published ledger** from its snapshot:
+
+```
+python scripts/freeze_message_log.py verify --archive X.tar.gz --manifest X.manifest.json
+python scripts/freeze_message_log.py extract --archive X.tar.gz --into snapshot
+PYTHONPATH=src python -m openagentsearch.reputation.build --log-root snapshot \
+    --out did-ledger.jsonl --compact-out did-ledger-compact.json --now <epoch published with the snapshot>
+sha256sum did-ledger.jsonl did-ledger-compact.json   # must equal the published hashes
+```
+
+`--now` fixes `generated_at` and every age-dependent field (`ledger.build_ledger`'s own docstring),
+so the rebuilt output is byte-reproducible only with the exact `--now` value published alongside
+the snapshot -- any other value produces a different, still-valid, but not byte-identical ledger.
+
 ## Publishing
 
 1. Build both files in one run: `python -m openagentsearch.reputation.build --log-root DIR

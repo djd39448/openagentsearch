@@ -9,3 +9,7 @@ worker/src/casefold-table.json -text
 worker/src/offer-shape.json -text
 tests/fixtures/reputation/ledger-20.jsonl -text
 tests/fixtures/reputation/compact-fixture.json -text
+tests/fixtures/reputation/log-snapshot/messages/alpha.jsonl -text
+tests/fixtures/reputation/log-snapshot/messages/bravo.jsonl -text
+tests/fixtures/reputation/log-snapshot/messages/charlie.jsonl -text
+tests/fixtures/reputation/log-snapshot.manifest.json -text

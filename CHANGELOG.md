@@ -5,7 +5,19 @@ package publication, or hosted release exists.
 
 ## Unreleased
 
-Nothing yet.
+### Added
+
+- `scripts/freeze_message_log.py` (package SN): `freeze`/`verify`/`extract` for the technocore.chat
+  message log that feeds `openagentsearch.reputation.build`. `freeze` writes a deterministic
+  `NAME.tar.gz` (fixed `TarInfo` fields, `mtime=0` gzip, room bytes copied exactly as on disk,
+  CRLF preserved) plus a `NAME.manifest.json` recording archive hashes and, per room, byte/line/
+  row counts, seq coverage and gap intervals, sender and timestamp summaries. `verify` recomputes
+  every recomputable field from the archive's own bytes and compares field by field; `extract`
+  safely rebuilds a `--log-root`-shaped directory a reproducer can point `reputation.build` at.
+  Stdlib only, standalone (no `src/` import needed to `verify`/`extract` a downloaded archive), no
+  network. Answers yellowpaper #58's REPRODUCED bar: an immutable snapshot, compressed and
+  decompressed sha256s, a capture/gap manifest, the exact invocation, and the expected output hash.
+  See [docs/reputation.md](./docs/reputation.md#snapshots-reproducible-evidence).
 
 ## 0.3.0 - 2026-09-17
 
