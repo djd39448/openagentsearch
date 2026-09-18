@@ -1,6 +1,6 @@
 {
   "name": "openagentsearch-worker",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "OpenAgentSearch public endpoint: GET-only JSON routes plus a remote MCP server (Streamable HTTP) on a Cloudflare Worker, over a precomputed lexical index.",

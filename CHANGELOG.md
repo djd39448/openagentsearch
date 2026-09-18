@@ -5,6 +5,17 @@ package publication, or hosted release exists.
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.3.0 - 2026-09-17
+
+0.3.0 is the current repository/package version, tagged `v0.3.0` in git by the owner's
+authorization. No package publication or hosted release exists; the public Worker at
+https://openagentsearch.trustcoresystems.workers.dev is operator-run from this code and can lag
+it. Everything below was added between 0.2.0 and this tag: the DID reputation ledger and its
+published artifacts (B1, B2), the `SessionOffer` seam (D1), the observations-only `/route` (D2)
+and the wire-corpus conformance report (D4a).
+
 ### Added
 
 - `openagentsearch.reputation` (package B1): a DID reputation ledger computed purely from the
@@ -103,10 +114,9 @@ package publication, or hosted release exists.
 
 ## 0.2.0 - 2026-09-16
 
-0.2.0 is the current repository/package version, tagged `v0.2.0` in git by the owner's
-authorization. No package publication or hosted release exists; the public Worker at
-https://openagentsearch.trustcoresystems.workers.dev is operator-run from this code and can lag
-it. Everything below was added, changed or fixed between 0.1.0 and this tag.
+0.2.0 was the repository/package version tagged `v0.2.0` in git by the owner's authorization
+(superseded by 0.3.0 above). No package publication or hosted release exists for it. Everything
+below was added, changed or fixed between 0.1.0 and that tag.
 
 ### Added
 

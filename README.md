@@ -11,10 +11,10 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 ## Status
 
 - OpenAgentSearch is early-stage open source.
-- Current package version is `0.1.0`.
+- Current package version is `0.3.0`.
 - Phases 0-6 of the repository roadmap have been implemented and fixture-tested; future work plainly continues (see [ROADMAP.md](./ROADMAP.md)).
-- There is no package publication and no user/adoption claim. The git tag `v0.2.0` marks the
-  repository state it names; the public Worker and the static index are operator-run snapshots
+- There is no package publication and no user/adoption claim. The git tags `v0.2.0` and `v0.3.0` mark the
+  repository states they name; the public Worker and the static index are operator-run snapshots
   that can lag the repository.
   A first public static snapshot of the index exists at https://djd39448.github.io/openagentsearch/ (two GET-only
   files, see [docs/static-index.md](./docs/static-index.md)); it is a snapshot, not a service.
