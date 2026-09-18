@@ -48,6 +48,14 @@ package publication, or hosted release exists.
   every JSON response, `worker/test/page.test.mjs` (Accept matrix, agent-contract pin against the
   captured live card `worker/test/fixtures/service-card.before.json`, CSP hash pin, page
   hygiene), docs in `docs/api.md` "Browsers" + "Inspector page (humans)". No version bump.
+- `.github/workflows/flop-session-router-provider.yml` + `integrations/flop-session-router/journey/`
+  + `PINS.md` (package RP2): CI that checks out `retardio73-boop/flop-session-router` pinned by
+  full commit SHA (`dba6525554c4ea5965ef6dd23e93194736aa0ef3`, never a branch), builds it,
+  compiles the RP1 provider against its real `dist` types, and runs a routing journey (J1-J7:
+  select, replay, snapshot, fail-closed empty, fail-closed throw, burst exclusion/annotation, no
+  network) over fixtures only, uploading the decisions/checks/fixture-hash evidence as the
+  `flop-session-router-journey` artifact; the workflow pins the router by full SHA; no secrets; no
+  network in tests or journey.
 
 ## 0.3.0 - 2026-09-17
 

@@ -1,0 +1,39 @@
+name: flop-session-router-provider
+on:
+  push:
+    branches: [main]
+    paths: ["integrations/flop-session-router/**", ".github/workflows/flop-session-router-provider.yml"]
+  pull_request:
+    paths: ["integrations/flop-session-router/**", ".github/workflows/flop-session-router-provider.yml"]
+  workflow_dispatch:
+permissions: { contents: read }
+concurrency:
+  group: "flop-session-router-provider-${{ github.ref }}"
+  cancel-in-progress: true
+env:
+  FLOP_SESSION_ROUTER_COMMIT: dba6525554c4ea5965ef6dd23e93194736aa0ef3
+jobs:
+  journey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4                       # ours
+        with: { persist-credentials: false }
+      - uses: actions/checkout@v4                       # theirs, pinned by full SHA (never a branch)
+        with: { repository: retardio73-boop/flop-session-router, ref: dba6525554c4ea5965ef6dd23e93194736aa0ef3, path: vendor/flop-session-router, persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Build the pinned router
+        working-directory: vendor/flop-session-router
+        run: npm ci --ignore-scripts && npm run build
+      - name: Provider check (typecheck + build + tests, no network)
+        working-directory: integrations/flop-session-router
+        run: npm ci --ignore-scripts && npm run check
+      - name: Assignability against their real dist types
+        working-directory: integrations/flop-session-router
+        run: npx tsc -p journey/tsconfig.json --noEmit
+      - name: Routing journey over the provider (fixtures only)
+        working-directory: integrations/flop-session-router
+        run: node journey/run.mjs
+      - uses: actions/upload-artifact@v4
+        with: { name: flop-session-router-journey, path: integrations/flop-session-router/journey/out/, if-no-files-found: error, retention-days: 90 }

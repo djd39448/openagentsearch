@@ -91,6 +91,41 @@ and the Router's decision is `NO_ELIGIBLE_MINER`.
   a store.
 - No network in tests: every test in `test/provider.test.ts` runs against an injected `fetch` stub.
 
+## Journey evidence (CI)
+
+`.github/workflows/flop-session-router-provider.yml` (package RP2) checks out this repository,
+then checks out the pinned `retardio73-boop/flop-session-router` commit
+(`dba6525554c4ea5965ef6dd23e93194736aa0ef3`) by full SHA into `vendor/flop-session-router`, builds
+it, runs `npm run check` here, compiles `journey/typecheck.ts` against their real `dist` types
+(`npx tsc -p journey/tsconfig.json --noEmit`), then runs `journey/run.mjs`: a routing journey that
+drives a real `SessionRouter` (from their built `dist/`) and a real
+`OpenAgentSearchCandidateProvider` (from this package's built `dist/`) against an in-process
+`fetch` stub answering only from this package's committed fixtures. The evidence it writes to
+`journey/out/` is uploaded as the `flop-session-router-journey` artifact (90-day retention). No
+secrets and no network beyond the two checkouts and `npm ci` from the registry.
+
+The journey checks:
+
+- **J1 select**: the bound, known DID is admitted with exactly the six expected provenance fields;
+  the bound-but-unknown DID is not.
+- **J2 replay**: `router.replay(decisionId)` returns `REPLAY_MATCH`.
+- **J3 snapshot**: `router.miners()` reports the provider-scoped snapshot from the last
+  `candidates()` call.
+- **J4 fail closed, empty**: every ledger lookup failing with `onUnavailable: "empty"` yields zero
+  candidates and `NO_ELIGIBLE_MINER`, never a partial list.
+- **J5 fail closed, throw**: the same failure with the default `onUnavailable: "throw"` rejects
+  `route()` with `OpenAgentSearchUnavailable` (`reason: "http_500"`); no decision is persisted.
+- **J6 burst exclusion**: a `burst: true` identity is omitted under `burstPolicy: "exclude"` and
+  merely annotated (assurance untouched) under the default `"annotate"`.
+- **J7 no network**: every request the journey made stayed under the OpenAgentSearch base URL, and
+  the distinct paths fetched are exactly the two `/did/{did}` lookups -- never `/healthz`, since
+  `version()` is never invoked.
+
+`decisionId` and `generatedAt` vary between runs; `status`, `ranking`, `REPLAY_MATCH`,
+`configHash` and every fixture's sha256 do not. See [PINS.md](./PINS.md) for the exact pins this
+workflow checks. This section documents what the workflow does and checks; it is not a claim of
+upstream adoption, integration status, or that upstream has run this journey.
+
 ## Reproduce
 
 ```sh
@@ -105,6 +140,21 @@ fixture, replay the captured request line, e.g.:
 
 ```
 curl -A openagentsearch-handoff/1 https://openagentsearch.trustcoresystems.workers.dev/did/<did>
+```
+
+To reproduce the journey evidence (package RP2) in one command from the repository root:
+
+```sh
+bash integrations/flop-session-router/journey/reproduce.sh
+```
+
+which does exactly this, manually, from the repository root:
+
+```sh
+git clone https://github.com/retardio73-boop/flop-session-router vendor/flop-session-router
+git -C vendor/flop-session-router checkout dba6525554c4ea5965ef6dd23e93194736aa0ef3
+(cd vendor/flop-session-router && npm ci --ignore-scripts && npm run build)
+(cd integrations/flop-session-router && npm ci --ignore-scripts && npm run check && node journey/run.mjs)
 ```
 
 ## Provenance of the ledger
