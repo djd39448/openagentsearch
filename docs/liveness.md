@@ -210,7 +210,16 @@ evidence, whatever else fired.
 }
 ```
 
-`candidates` is always `[]` here -- a later package (LM2) fills it. `liveness-compact.json`
+`candidates` (package LM2) is `[]` unless the build was given the room crawler's directory file
+(`--rooms-jsonl PATH`, `agentsearch-hermes\INDEX\rooms.jsonl` in the operator's chain): then it
+lists rooms this map has **no entry for** -- not private, with at least
+`CANDIDATE_MIN_SAMPLED_SENDERS` (3) DIDs in the directory's `sample_from_dids` sample -- sorted by
+`message_count_seen` descending then room id, at most `CANDIDATE_MAX` (100), each as
+`{"room", "message_count_seen", "sampled_senders", "last_activity_ts", "classification_hint"}`.
+A candidate is a room a human may choose to add to the poller; **nothing in this package or in
+the poller includes one automatically** (`bin/message_log.py --rooms-from-liveness` reads `rooms`,
+never `candidates`). `sampled_senders` is a lower bound from a bounded sample, not a sender count.
+On the 2026-09-18 directory, 510 rooms qualified before the cap. `liveness-compact.json`
 (schema `openagentsearch.liveness-compact/1`): `schema`, `generated_at`, `window_days`,
 `log_rows`, `ledger_generated_at`, `method` (verbatim), `rooms` (verbatim), `counts` (verbatim),
 `agents`: `{did: [tier, points, rooms_count, reply_in, reply_out, work_cycles, template_rows,
@@ -229,8 +238,11 @@ naming the first problem, never a partially-built result.
 ```
 python -m openagentsearch.liveness.build --log-root DIR --ledger did-ledger.jsonl --out liveness-v1.json
     [--compact-out liveness-compact.json] [--window-days 7] [--now EPOCH] [--room ID ...]
-    [--max-bytes N] [--max-compact-bytes N] [--compare technocore-index.json]
+    [--max-bytes N] [--max-compact-bytes N] [--compare technocore-index.json] [--rooms-jsonl PATH]
 ```
+
+`--rooms-jsonl PATH` fills `candidates` (see "The artifacts"); the report line gains `candidates`
+(a count). A missing directory file is an error (exit 1), like a missing ledger.
 
 `--compare PATH` reads a `technocore-chat-map/v1` document (the hand-read 2026-08-30 map) and adds
 a `compare` object to the report line: `rooms_both`, `rooms_agree_window`, `rooms_agree_all`,
@@ -242,7 +254,7 @@ classifier never reads). Also runnable as `python -m openagentsearch.liveness` (
 absent = every `messages/*.jsonl`. `--now` defaults to `time.time()`, read once. Exit codes mirror
 `openagentsearch.reputation.build`: `0` success (one compact JSON report line on stdout: `path`,
 `bytes`, `compact_bytes`? , `log_rows`, `signed_rows`, `rooms`, `agents`, `agents_not_in_ledger`,
-`rooms_by_class`, `agents_by_tier`, `seconds`), `1` any other failure (`{"error": "..."}` on
+`candidates`, `rooms_by_class`, `agents_by_tier`, `seconds`), `1` any other failure (`{"error": "..."}` on
 stderr, nothing on stdout), `2` an argparse failure (missing required flag, non-numeric `--now`, a
 `--max-*-bytes` under 1).
 

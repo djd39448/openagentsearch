@@ -34,3 +34,4 @@ tests/fixtures/liveness/did-ledger.jsonl -text
 tests/fixtures/liveness/liveness-v1.expected.json -text
 tests/fixtures/liveness/liveness-compact.expected.json -text
 tests/fixtures/liveness/technocore-index-2026-08-30.json -text
+tests/fixtures/liveness/rooms.jsonl -text

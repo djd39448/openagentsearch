@@ -79,6 +79,13 @@ package publication, or hosted release exists.
   unchanged). Room ids in the map are data: malformed or `p-*` ids are skipped and counted, never
   requested. `--include-classes` outside the vocabulary exits `2` before any network access. See
   [docs/message-log.md](./docs/message-log.md).
+- `openagentsearch.liveness.build --rooms-jsonl PATH` (package LM2): fills the map's
+  `candidates` from the room crawler's directory file -- rooms the map has no entry for, not
+  private, with at least 3 sampled senders, at most 100 by `message_count_seen` -- for a human to
+  read; nothing includes a candidate automatically (the poller reads `rooms`, never
+  `candidates`). `CANDIDATE_MIN_SAMPLED_SENDERS`/`CANDIDATE_MAX` and a `candidates_rule` are
+  published in `method`; `load_liveness` refuses a shapeless candidate; the report line gains a
+  `candidates` count. See [docs/liveness.md](./docs/liveness.md#the-artifacts).
 
 ## 0.3.0 - 2026-09-17
 

@@ -29,6 +29,22 @@ from openagentsearch.reputation.facts import _ABBR_MENTION_RE as ABBR_MENTION_RE
 from openagentsearch.reputation.facts import _DID_TOKEN_RE as DID_TOKEN_RE
 from openagentsearch.reputation.facts import normalize_text
 
+# Explicit re-exports (mypy --strict's implicit-re-export rule): the four regexes borrowed from
+# `reputation.facts` under public names, plus everything this module defines for `rooms.py`,
+# `agents.py` and `build.py`.
+__all__ = [
+    "ABBR_MENTION_ELLIPSIS_RE", "ABBR_MENTION_RE", "AGENT_MIN_POSTS", "AGENT_POINTS",
+    "AT_MENTION_RE", "BASE58", "DID_TOKEN_RE", "FARM_BURST_SENDER_SHARE",
+    "FARM_FAUCET_SENDER_SHARE", "FARM_MIN_SENDERS", "FARM_ONE_LINE_SHARE",
+    "FARM_TEMPLATE_SENDER_SHARE", "FAUCET_ONBOARDING_PATTERNS", "FLOOD_ROWS_PER_5MIN_P95",
+    "KIBBLE_LINE_RE", "LIVE_MIN_REPLY_SENDERS", "LIVE_MIN_WORK_CYCLES", "LIVE_REPLY_SENDER_SHARE",
+    "NEGATIVE_MARKERS", "REPLY_HEAD_RE", "ROOM_MIN_ROWS", "ROOM_MIN_SENDERS", "Row",
+    "SENDER_MAJORITY", "TEMPLATE_MIN_REPEATS", "TIER_LIKELY_MIN", "TIER_LIVE_MIN", "TIER_WEAK_MIN",
+    "WINDOW_DAYS_DEFAULT", "build_known_suffix_map", "is_kibble_line", "iso8601_utc",
+    "kibble_stage", "mask_text", "masked_text_counts", "matches_faucet_onboarding", "normalize_text",
+    "p95", "reply_targets", "starts_as_reply", "work_cycles",
+]
+
 # One row: (seq, ts_epoch, sender, text, signed). Signed and unsigned rows are both represented --
 # callers decide which subset of rows to pass to a given function (see each function's docstring).
 Row = tuple[int, float, str, str, bool]

@@ -1,0 +1,12 @@
+{"classification_hint": "active", "first_seen_ts": 1789600000, "id": "contrib-like", "last_activity_ts": 1789699000, "last_seq": 21, "message_count_seen": 21, "sample_from_dids": ["did:key:zA", "did:key:zB", "did:key:zC"]}
+{"classification_hint": "active", "first_seen_ts": 1789600000, "id": "cand-busy", "last_activity_ts": 1789699000, "last_seq": 900, "message_count_seen": 900, "sample_from_dids": ["did:key:zA", "did:key:zB", "did:key:zC", "did:key:zD"]}
+{"classification_hint": "active", "first_seen_ts": 1789600000, "id": "cand-alpha", "last_activity_ts": 1789699000, "last_seq": 500, "message_count_seen": 500, "sample_from_dids": ["did:key:zA", "did:key:zB", "did:key:zC"]}
+{"classification_hint": "sparse", "first_seen_ts": 1789600000, "id": "cand-beta", "last_activity_ts": null, "last_seq": 500, "message_count_seen": 500, "sample_from_dids": ["did:key:zA", "did:key:zB", "did:key:zC"]}
+{"classification_hint": "sparse", "first_seen_ts": 1789600000, "id": "two-samples", "last_activity_ts": 1789699000, "last_seq": 5, "message_count_seen": 5000, "sample_from_dids": ["did:key:zA", "did:key:zB"]}
+{"classification_hint": "active", "first_seen_ts": 1789600000, "id": "p-private", "last_activity_ts": 1789699000, "last_seq": 5, "message_count_seen": 5000, "sample_from_dids": ["did:key:zA", "did:key:zB", "did:key:zC"]}
+{"classification_hint": "active", "id": "bad id!", "message_count_seen": 5000, "sample_from_dids": ["did:key:zA", "did:key:zB", "did:key:zC"]}
+{"classification_hint": "active", "id": "no-count", "sample_from_dids": ["did:key:zA", "did:key:zB", "did:key:zC"]}
+{"classification_hint": "active", "id": "samples-not-list", "message_count_seen": 7, "sample_from_dids": "did:key:zA"}
+{"classification_hint": "empty", "first_seen_ts": null, "id": "0000ff", "last_activity_ts": null, "last_seq": null, "message_count_seen": 0, "sample_from_dids": []}
+{not json
+[1, 2]

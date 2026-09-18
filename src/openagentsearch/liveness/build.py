@@ -44,8 +44,12 @@ from openagentsearch.liveness.rooms import (
     room_verdict_to_obj,
 )
 from openagentsearch.liveness.signals import (
+    ABBR_MENTION_ELLIPSIS_RE,
+    ABBR_MENTION_RE,
     AGENT_MIN_POSTS,
     AGENT_POINTS,
+    AT_MENTION_RE,
+    DID_TOKEN_RE,
     FARM_BURST_SENDER_SHARE,
     FARM_FAUCET_SENDER_SHARE,
     FARM_MIN_SENDERS,
@@ -57,6 +61,7 @@ from openagentsearch.liveness.signals import (
     LIVE_MIN_REPLY_SENDERS,
     LIVE_MIN_WORK_CYCLES,
     LIVE_REPLY_SENDER_SHARE,
+    NEGATIVE_MARKERS,
     REPLY_HEAD_RE,
     ROOM_MIN_ROWS,
     ROOM_MIN_SENDERS,
@@ -70,12 +75,17 @@ from openagentsearch.liveness.signals import (
     iso8601_utc,
 )
 from openagentsearch.reputation.ledger import Ledger, load_ledger
-from openagentsearch.sources.technocore_messages import RoomMessagesAdapter
+from openagentsearch.sources.technocore_messages import _ROOM_ID_RE, RoomMessagesAdapter
 
 SCHEMA = "openagentsearch.liveness/1"
 SCHEMA_COMPACT = "openagentsearch.liveness-compact/1"
 DEFAULT_MAX_BYTES = 32 * 1024 * 1024
 DEFAULT_MAX_COMPACT_BYTES = 8 * 1024 * 1024
+# Package LM2: discovery candidates from the room DIRECTORY (`rooms.jsonl`, counts and sampled
+# senders only, never message text) -- rooms the map has never seen, with at least this many
+# sampled senders, at most this many, for a human to read. Never auto-included anywhere.
+CANDIDATE_MIN_SAMPLED_SENDERS = 3
+CANDIDATE_MAX = 100
 
 _ROOM_TABLE_PROSE = (
     "rows < ROOM_MIN_ROWS or distinct_senders < ROOM_MIN_SENDERS -> unknown",
@@ -113,10 +123,24 @@ METHOD: dict[str, Any] = {
         "DEFAULT_MAX_COMPACT_BYTES": DEFAULT_MAX_COMPACT_BYTES,
         "SCHEMA": SCHEMA,
         "SCHEMA_COMPACT": SCHEMA_COMPACT,
+        "CANDIDATE_MIN_SAMPLED_SENDERS": CANDIDATE_MIN_SAMPLED_SENDERS,
+        "CANDIDATE_MAX": CANDIDATE_MAX,
     },
     "faucet_onboarding_patterns": [p.pattern for p in FAUCET_ONBOARDING_PATTERNS],
     "kibble_line_pattern": KIBBLE_LINE_RE.pattern,
     "reply_head_pattern": REPLY_HEAD_RE.pattern,
+    "mention_patterns": {
+        "full_did": DID_TOKEN_RE.pattern,
+        "at_8": AT_MENTION_RE.pattern,
+        "abbr_dotdot_4": ABBR_MENTION_RE.pattern,
+        "abbr_ellipsis_4": ABBR_MENTION_ELLIPSIS_RE.pattern,
+    },
+    "mention_rule": (
+        "a full DID token is a reply target only when it names a sender in scope; a short form "
+        "resolves only through an unambiguous 8- or 4-character suffix of a sender in scope; the "
+        "sender itself is never a target; a bare @nickname is never a reply"
+    ),
+    "negative_markers": sorted(NEGATIVE_MARKERS),
     "mask_rule": (
         "replace every DID token/short-mention form with <did>, then hex runs "
         "(\\b[0-9a-f]{6,}\\b) with <hex>, then digit runs with 0, then normalize_text "
@@ -131,6 +155,12 @@ METHOD: dict[str, Any] = {
     "window_rule": (
         "room classification is decided on the WINDOW facts (WINDOW_DAYS_DEFAULT, or --window-days); "
         "agent signals are computed over every row in the rooms given, not time-windowed"
+    ),
+    "candidates_rule": (
+        "candidates (only with --rooms-jsonl) are rooms in the room directory that this map has no "
+        "entry for, are not private (p-*), and list >= CANDIDATE_MIN_SAMPLED_SENDERS sampled "
+        "senders, sorted by message_count_seen descending then room id, cut at CANDIDATE_MAX; a "
+        "candidate is a room a human may choose to poll -- nothing here includes one automatically"
     ),
 }
 
@@ -219,6 +249,78 @@ def _load_gaps(log_root: Path) -> dict[str, int]:
     return gaps
 
 
+def load_candidates(
+    rooms_jsonl: Path,
+    *,
+    known_rooms: Sequence[str] | frozenset[str] | set[str],
+    min_sampled_senders: int = CANDIDATE_MIN_SAMPLED_SENDERS,
+    limit: int = CANDIDATE_MAX,
+) -> tuple[dict[str, Any], ...]:
+    """Discovery candidates from the room directory `rooms_jsonl` (the crawler's `rooms.jsonl`:
+    one JSON object per line with `id`, `message_count_seen`, `last_activity_ts`,
+    `sample_from_dids`, `classification_hint` -- counts and a few sampled sender DIDs, never message
+    text): every room whose `id` is a valid room id, is not private (`p-*`), is NOT in
+    `known_rooms` (the rooms this map already classifies), and lists at least
+    `min_sampled_senders` entries in `sample_from_dids`; sorted by `message_count_seen` descending
+    then `id`, cut at `limit`. Each candidate is
+    `{"room", "message_count_seen", "sampled_senders", "last_activity_ts", "classification_hint"}`.
+
+    A malformed line, a non-object row, a mistyped/absent `id` or `message_count_seen`, or a
+    non-list `sample_from_dids` is skipped silently -- the directory is data the crawler wrote,
+    never something this function raises on. A missing or unreadable FILE does raise (`OSError`),
+    because the caller asked for candidates by name.
+
+    NOT guaranteed: `sample_from_dids` is a SAMPLE the crawler kept (bounded per room), not a
+    sender count -- `sampled_senders` is a lower bound on distinct senders, nothing more; nothing
+    here says a candidate is live, and nothing anywhere in this package includes a candidate in
+    any room list automatically.
+    """
+    known = set(known_rooms)
+    picked: list[tuple[int, str, dict[str, Any]]] = []
+    with Path(rooms_jsonl).open("rb") as fh:
+        for raw_line in fh:
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+            try:
+                row: Any = json.loads(stripped.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            if not isinstance(row, dict):
+                continue
+            room_id = row.get("id")
+            if not isinstance(room_id, str) or not _ROOM_ID_RE.match(room_id):
+                continue
+            if room_id.startswith("p-") or room_id in known:
+                continue
+            count = row.get("message_count_seen")
+            if isinstance(count, bool) or not isinstance(count, int):
+                continue
+            samples = row.get("sample_from_dids")
+            if not isinstance(samples, list):
+                continue
+            sampled = sum(1 for d in samples if isinstance(d, str))
+            if sampled < min_sampled_senders:
+                continue
+            last_activity = row.get("last_activity_ts")
+            if isinstance(last_activity, bool) or not isinstance(last_activity, (int, float)):
+                last_activity = None
+            hint = row.get("classification_hint")
+            picked.append((
+                count,
+                room_id,
+                {
+                    "room": room_id,
+                    "message_count_seen": count,
+                    "sampled_senders": sampled,
+                    "last_activity_ts": last_activity,
+                    "classification_hint": hint if isinstance(hint, str) else None,
+                },
+            ))
+    picked.sort(key=lambda item: (-item[0], item[1]))
+    return tuple(entry for _count, _room, entry in picked[:limit])
+
+
 @dataclass(frozen=True)
 class RoomEntry:
     """One room's verdict plus its window and all-time facts -- `LivenessMap.rooms`'s value type."""
@@ -241,8 +343,8 @@ class LivenessMap:
     """The whole liveness build, in memory -- see `to_json_bytes`/`to_compact_json_bytes` for the
     two on-disk shapes. `counts` and `candidates` are NOT stored here: `counts` is always derived
     from `rooms`/`agents` at serialization time (`_counts_obj`), so it can never drift from the
-    maps it summarizes; `candidates` is always empty (`()`) -- LM1 never fills it, a later package
-    (LM2) does.
+    maps it summarizes; `candidates` is `()` unless the build was given a room directory
+    (`build_liveness(..., rooms_jsonl=...)`, CLI `--rooms-jsonl`) -- see `load_candidates`.
 
     NOT guaranteed: a snapshot as of `generated_at`, against whatever message-log rows and ledger
     were on disk/passed in at build time -- not a live view.
@@ -297,6 +399,9 @@ class LivenessMap:
             raise ValueError("agents must be a mapping of AgentEntry")
         if not isinstance(self.candidates, tuple):
             raise ValueError("candidates must be a tuple")
+        for entry in self.candidates:
+            if not isinstance(entry, dict) or not isinstance(entry.get("room"), str):
+                raise ValueError(f"each candidate must be an object with a string room, got {entry!r}")
 
 
 def _counts_obj(rooms: Mapping[str, RoomEntry], agents: Mapping[str, AgentEntry]) -> dict[str, Any]:
@@ -324,13 +429,15 @@ def build_liveness(
     now: float,
     window_days: float = WINDOW_DAYS_DEFAULT,
     rooms: Sequence[str] | None = None,
+    rooms_jsonl: Path | None = None,
 ) -> LivenessMap:
     """Read `log_root`'s message log (and its optional `message-log-state.json`), classify every
     room against `ledger`, compute every ledger DID's agent signals and tier, and assemble one
     `LivenessMap`. `rooms` restricts which room files are read (rooms AND agent scope) -- `None`
     reads every `messages/*.jsonl` file found. `now` is the caller's clock reading, used for
     `generated_at`, the window cutoff, and every `AgentSignals.age_days`; this function never reads
-    a clock itself.
+    a clock itself. `rooms_jsonl` (package LM2), when given, fills `candidates` from the room
+    directory via `load_candidates` (rooms this map has no entry for); `None` leaves it `()`.
     """
     log_root = Path(log_root)
     rows_by_room, log_rows, signed_rows = _load_rows(log_root, rooms=rooms)
@@ -363,6 +470,10 @@ def build_liveness(
         for did, sig in signals_by_did.items()
     }
 
+    candidates: tuple[dict[str, Any], ...] = ()
+    if rooms_jsonl is not None:
+        candidates = load_candidates(Path(rooms_jsonl), known_rooms=set(room_entries))
+
     return LivenessMap(
         schema=SCHEMA,
         generated_at=iso8601_utc(now),
@@ -377,7 +488,7 @@ def build_liveness(
         method=METHOD,
         rooms=room_entries,
         agents=agent_entries,
-        candidates=(),
+        candidates=candidates,
     )
 
 
@@ -779,6 +890,9 @@ def load_liveness(path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> Liveness
     candidates_raw = obj.get("candidates")
     if not isinstance(candidates_raw, list):
         raise _fail("candidates must be a list")
+    for entry in candidates_raw:
+        if not isinstance(entry, dict) or not isinstance(entry.get("room"), str):
+            raise _fail(f"candidates entry must be an object with a string room, got {entry!r}")
 
     return LivenessMap(
         schema=schema,
@@ -1114,6 +1228,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--now", type=float, default=None, help="epoch seconds; default: now")
     parser.add_argument("--room", action="append", default=None, dest="rooms", help="repeatable")
     parser.add_argument(
+        "--rooms-jsonl", default=None, dest="rooms_jsonl",
+        help=(
+            "optional: the room crawler's rooms.jsonl directory file; fills `candidates` with rooms "
+            "this map has no entry for (>= CANDIDATE_MIN_SAMPLED_SENDERS sampled senders, at most "
+            "CANDIDATE_MAX, by message_count_seen) for a human to read -- never auto-included"
+        ),
+    )
+    parser.add_argument(
         "--max-bytes", type=_positive_int, default=DEFAULT_MAX_BYTES, dest="max_bytes"
     )
     parser.add_argument(
@@ -1149,6 +1271,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             log_root, ledger,
             now=now, window_days=args.window_days,
             rooms=tuple(args.rooms) if args.rooms is not None else None,
+            rooms_jsonl=Path(args.rooms_jsonl) if args.rooms_jsonl is not None else None,
         )
         written_bytes = write_liveness(liveness, out_path, max_bytes=args.max_bytes)
         compact_bytes: int | None = None
@@ -1178,6 +1301,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "rooms": liveness.rooms_read,
         "agents": len(liveness.agents),
         "agents_not_in_ledger": liveness.agents_not_in_ledger,
+        "candidates": len(liveness.candidates),
         "rooms_by_class": _counts_obj(liveness.rooms, liveness.agents)["rooms_by_class"],
         "agents_by_tier": _counts_obj(liveness.rooms, liveness.agents)["agents_by_tier"],
         "seconds": time.perf_counter() - started,

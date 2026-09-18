@@ -36,8 +36,11 @@ from openagentsearch.liveness.build import (
     METHOD,
     CompactLivenessSizeError,
     LivenessSizeError,
+    CANDIDATE_MAX,
+    CANDIDATE_MIN_SAMPLED_SENDERS,
     build_liveness,
     compare_to_baseline,
+    load_candidates,
     load_compact_liveness,
     load_liveness,
     to_compact_json_bytes,
@@ -283,6 +286,8 @@ def test_every_spec_constant_appears_verbatim_in_method():
         "DEFAULT_MAX_COMPACT_BYTES": DEFAULT_MAX_COMPACT_BYTES,
         "SCHEMA": "openagentsearch.liveness/1",
         "SCHEMA_COMPACT": "openagentsearch.liveness-compact/1",
+        "CANDIDATE_MIN_SAMPLED_SENDERS": CANDIDATE_MIN_SAMPLED_SENDERS,
+        "CANDIDATE_MAX": CANDIDATE_MAX,
     }
     for name, value in expected.items():
         assert name in constants, f"{name} missing from METHOD['constants']"
@@ -329,7 +334,7 @@ def test_cli_writes_liveness_and_prints_a_report_line(tmp_path):
     payload = json.loads(lines[0])
     assert set(payload.keys()) == {
         "path", "bytes", "log_rows", "signed_rows", "rooms", "agents", "agents_not_in_ledger",
-        "rooms_by_class", "agents_by_tier", "seconds",
+        "candidates", "rooms_by_class", "agents_by_tier", "seconds",
     }
     assert out.is_file()
     assert out.stat().st_size == payload["bytes"]
@@ -531,3 +536,94 @@ def test_cli_compare_flag_reports_the_comparison(tmp_path):
     report = json.loads(proc.stdout.strip())
     assert report["compare"]["rooms_both"] == 0 and report["compare"]["agents_both"] == 0
     assert report["compare"]["baseline_generated"] == "2026-08-30T19:20:00Z"
+
+
+# ---------------------------------------------------------------------------------------------
+# Package LM2: discovery candidates from the room directory (`--rooms-jsonl`).
+# ---------------------------------------------------------------------------------------------
+
+ROOMS_JSONL = FIXTURES / "rooms.jsonl"
+
+
+def test_load_candidates_filters_sorts_and_shapes():
+    # `contrib-like` is a room this map classifies -> never a candidate; `p-private`, a malformed
+    # id, a missing count, a non-list sample, two samples, an empty room, a non-JSON line and a
+    # non-object line are all skipped silently.
+    result = load_candidates(ROOMS_JSONL, known_rooms={"contrib-like"})
+    assert [c["room"] for c in result] == ["cand-busy", "cand-alpha", "cand-beta"]
+    assert result[0] == {
+        "room": "cand-busy", "message_count_seen": 900, "sampled_senders": 4,
+        "last_activity_ts": 1789699000, "classification_hint": "active",
+    }
+    # equal counts tie-break by room id; a null last_activity_ts stays null
+    assert result[1]["room"] == "cand-alpha" and result[2]["room"] == "cand-beta"
+    assert result[2]["last_activity_ts"] is None
+    # `known_rooms` is honoured: without it, contrib-like (21 rows, 3 samples) is a candidate too
+    assert "contrib-like" in {c["room"] for c in load_candidates(ROOMS_JSONL, known_rooms=())}
+    # the cap and the minimum are the published constants
+    assert CANDIDATE_MAX == 100 and CANDIDATE_MIN_SAMPLED_SENDERS == 3
+    assert [c["room"] for c in load_candidates(ROOMS_JSONL, known_rooms=(), limit=1)] == ["cand-busy"]
+    assert [c["room"] for c in load_candidates(ROOMS_JSONL, known_rooms=(), min_sampled_senders=4)] == [
+        "cand-busy"
+    ]
+    assert METHOD["constants"]["CANDIDATE_MAX"] == CANDIDATE_MAX
+    assert METHOD["constants"]["CANDIDATE_MIN_SAMPLED_SENDERS"] == CANDIDATE_MIN_SAMPLED_SENDERS
+    assert "candidates_rule" in METHOD
+    assert set(METHOD["mention_patterns"]) == {"full_did", "at_8", "abbr_dotdot_4", "abbr_ellipsis_4"}
+    assert "…" in METHOD["mention_patterns"]["abbr_ellipsis_4"]
+    assert METHOD["negative_markers"] == [
+        "faucet_onboarding_majority", "one_line", "template_majority_and_posts_ge_3",
+    ]
+
+
+def test_load_candidates_missing_file_raises():
+    with pytest.raises(OSError):
+        load_candidates(FIXTURES / "does-not-exist.jsonl", known_rooms=())
+
+
+def test_build_with_rooms_jsonl_fills_candidates_and_round_trips(tmp_path):
+    liveness = build_liveness(
+        FIXTURES, _ledger(), now=FIXED_NOW, window_days=WINDOW_DAYS_DEFAULT, rooms_jsonl=ROOMS_JSONL
+    )
+    assert [c["room"] for c in liveness.candidates] == ["cand-busy", "cand-alpha", "cand-beta"]
+    out = tmp_path / "liveness-v1.json"
+    write_liveness(liveness, out)
+    loaded = load_liveness(out)
+    assert list(loaded.candidates) == list(liveness.candidates)
+    # the pinned artifact is the no-directory build: candidates [] there, everything else equal
+    without = build_liveness(FIXTURES, _ledger(), now=FIXED_NOW, window_days=WINDOW_DAYS_DEFAULT)
+    assert without.candidates == ()
+    assert json.loads(to_json_bytes(without)) == {
+        **json.loads(to_json_bytes(liveness)), "candidates": [],
+    }
+    # the compact artifact never carries candidates (a human reads the full map)
+    assert "candidates" not in json.loads(to_compact_json_bytes(liveness))
+
+
+def test_load_liveness_refuses_a_shapeless_candidate(tmp_path):
+    liveness = build_liveness(FIXTURES, _ledger(), now=FIXED_NOW, window_days=WINDOW_DAYS_DEFAULT)
+    obj = json.loads(to_json_bytes(liveness))
+    obj["candidates"] = [{"message_count_seen": 1}]
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps(obj), encoding="utf-8")
+    with pytest.raises(ValueError, match="candidates entry"):
+        load_liveness(bad)
+
+
+def test_cli_rooms_jsonl_reports_the_candidate_count(tmp_path):
+    out = tmp_path / "liveness-v1.json"
+    proc = subprocess.run(
+        [
+            sys.executable, "-m", "openagentsearch.liveness.build",
+            "--log-root", str(FIXTURES), "--ledger", str(LEDGER_PATH),
+            "--out", str(out), "--now", str(FIXED_NOW), "--rooms-jsonl", str(ROOMS_JSONL),
+        ],
+        capture_output=True, text=True, encoding="utf-8", timeout=SUBPROCESS_TIMEOUT,
+        env={**os.environ, "PYTHONPATH": str(REPO / "src")}, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(proc.stdout.strip())
+    assert report["candidates"] == 3
+    assert [c["room"] for c in json.loads(out.read_text(encoding="utf-8"))["candidates"]] == [
+        "cand-busy", "cand-alpha", "cand-beta",
+    ]
