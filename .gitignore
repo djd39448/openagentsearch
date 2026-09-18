@@ -18,3 +18,9 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# flop-session-router integration: pinned upstream checkout + build output + local journey evidence
+/vendor/
+integrations/flop-session-router/node_modules/
+integrations/flop-session-router/dist/
+integrations/flop-session-router/journey/out/

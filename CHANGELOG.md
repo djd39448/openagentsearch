@@ -25,6 +25,18 @@ package publication, or hosted release exists.
   build** over a log larger than the published-artifact size guards -- those guards protect the
   Pages/Worker artifacts this command routinely publishes, and an evidence build that raises them
   is never itself published there. See [docs/reputation.md](./docs/reputation.md#the-cli).
+- `integrations/flop-session-router/` (package RP1): `OpenAgentSearchCandidateProvider`, a
+  `MinerCandidateProvider` for `retardio73-boop/flop-session-router` pinned to commit
+  `dba6525554c4ea5965ef6dd23e93194736aa0ef3` (tag `v0.1.3-alpha`), mirroring their
+  `ExplicitDiscoveryCandidateProvider` binding pattern: bound-DID-only, 200-only, unknown treated as
+  absent (never an error), burst exclusion is exclusion not a score, and the only mutation is
+  attaching `EvidenceProvenance` to a capability that has none, never overwriting existing operator
+  provenance and never touching telemetry/price/assurance; fails closed (`throw` or `empty`, never
+  a partial candidate list) on any ledger unavailability. Transport is https-only, no redirects, a
+  5s timeout, a 512 KiB body cap, an explicit User-Agent, a 60s per-DID memo, and at most 4
+  concurrent lookups. Ships with six `-text` fixtures (verbatim live `GET /did/{did}` and
+  `GET /healthz` bodies captured 2026-09-18) and a `test/provider.test.ts` covering all of the above
+  against an injected `fetch` stub; no network in tests, and nothing else in the repository changes.
 
 ## 0.3.0 - 2026-09-17
 

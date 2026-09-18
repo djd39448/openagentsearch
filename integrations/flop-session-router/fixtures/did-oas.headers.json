@@ -1,0 +1,7 @@
+{
+  "x-ledger-generated-at": "2026-09-18T08:35:54Z",
+  "captured_at": "2026-09-18T14:45:00Z",
+  "request": "GET https://openagentsearch.trustcoresystems.workers.dev/did/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf",
+  "user_agent": "openagentsearch-handoff/1",
+  "status": 200
+}

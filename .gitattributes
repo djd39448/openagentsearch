@@ -13,3 +13,11 @@ tests/fixtures/reputation/log-snapshot/messages/alpha.jsonl -text
 tests/fixtures/reputation/log-snapshot/messages/bravo.jsonl -text
 tests/fixtures/reputation/log-snapshot/messages/charlie.jsonl -text
 tests/fixtures/reputation/log-snapshot.manifest.json -text
+
+# flop-session-router provider fixtures: verbatim live bodies, byte-compared by tests (package RP).
+integrations/flop-session-router/fixtures/did-oas.json -text
+integrations/flop-session-router/fixtures/did-oas.headers.json -text
+integrations/flop-session-router/fixtures/did-unknown.json -text
+integrations/flop-session-router/fixtures/did-not-built.json -text
+integrations/flop-session-router/fixtures/healthz.json -text
+integrations/flop-session-router/fixtures/bindings.example.json -text

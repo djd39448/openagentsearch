@@ -1,0 +1,25 @@
+{
+  "note": "EXAMPLE bindings for tests and the journey. Neither candidate is a real miner: example.invalid is an RFC 2606 reserved name, assurance is UNKNOWN, and no telemetry or price is asserted. The first DID is the OpenAgentSearch operator identity (present in the ledger); the second is a syntactically valid did:key that the ledger has never seen.",
+  "bindings": [
+    {
+      "did": "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf",
+      "candidate": {
+        "id": "example-miner-oas",
+        "identity": { "did": "did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf" },
+        "endpoint": { "url": "https://example.invalid/inference", "protocol": "https" },
+        "capabilities": [ { "modelId": "example-model", "assurance": "UNKNOWN" } ],
+        "enabled": true
+      }
+    },
+    {
+      "did": "did:key:z6MkrHKzgsTKF5A2uwvPLxKzFvDFsrb1XdqB4ZaR5jWfhq3a",
+      "candidate": {
+        "id": "example-miner-unknown",
+        "identity": { "did": "did:key:z6MkrHKzgsTKF5A2uwvPLxKzFvDFsrb1XdqB4ZaR5jWfhq3a" },
+        "endpoint": { "url": "https://example.invalid/inference-2", "protocol": "https" },
+        "capabilities": [ { "modelId": "example-model", "assurance": "UNKNOWN" } ],
+        "enabled": true
+      }
+    }
+  ]
+}

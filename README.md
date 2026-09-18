@@ -132,6 +132,11 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   and sender/timestamp summaries, so a third party can download one archive, verify it against its
   manifest, extract it, and rebuild the published ledger to the published hash. See
   [docs/reputation.md](./docs/reputation.md#snapshots-reproducible-evidence).
+- `OpenAgentSearchCandidateProvider` (package RP1, `integrations/flop-session-router/`): a
+  `MinerCandidateProvider` for `retardio73-boop/flop-session-router` that binds operator-supplied
+  DIDs to candidates and emits a bound candidate only when `GET /did/{did}` answers 200, mutating
+  nothing but attaching `EvidenceProvenance` to a capability that has none. See
+  [integrations/flop-session-router/README.md](./integrations/flop-session-router/README.md).
 
 ## What is not wired yet
 

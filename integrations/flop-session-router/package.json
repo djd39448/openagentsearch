@@ -1,0 +1,21 @@
+{
+  "name": "openagentsearch-flop-session-router-provider",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenAgentSearchCandidateProvider: a MinerCandidateProvider for retardio73-boop/flop-session-router backed by the OpenAgentSearch public DID ledger (GET /did/{did}). Explicit operator bindings; a bound candidate is emitted only when the ledger answers 200; the only mutation is EvidenceProvenance on capabilities that have none.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
