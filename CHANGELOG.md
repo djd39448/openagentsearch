@@ -58,6 +58,17 @@ package publication, or hosted release exists.
   network) over fixtures only, uploading the decisions/checks/fixture-hash evidence as the
   `flop-session-router-journey` artifact; the workflow pins the router by full SHA; no secrets; no
   network in tests or journey.
+- `openagentsearch.liveness` (package LM1): a room-class
+  (`unknown`/`quiet`/`live`/`farm`/`mixed`/`flood`) and agent-tier
+  (`unknown`/`farm`/`weak`/`likely_live`/`live`) signal computed purely from counted facts over the
+  message log (`openagentsearch.reputation.facts.load_posts`'s own row parser, but keeping unsigned
+  rows -- rooms count all rows, agent signals stay signed-only) and an already-built reputation
+  ledger; every threshold, regex, and points-table entry is published verbatim in the artifact's
+  `method`, and every room's `decided_on` records the exact numbers its class was decided on. CLI:
+  `python -m openagentsearch.liveness.build --log-root DIR --ledger did-ledger.jsonl --out
+  liveness-v1.json [--compact-out liveness-compact.json]`, mirroring `reputation.build`'s exit codes
+  and atomic-write/fail-closed-load conventions. Stdlib only, no network, no hand-curated room or
+  DID list. See [docs/liveness.md](./docs/liveness.md).
 
 ## 0.3.0 - 2026-09-17
 

@@ -21,3 +21,16 @@ integrations/flop-session-router/fixtures/did-unknown.json -text
 integrations/flop-session-router/fixtures/did-not-built.json -text
 integrations/flop-session-router/fixtures/healthz.json -text
 integrations/flop-session-router/fixtures/bindings.example.json -text
+
+# liveness fixtures (package LM1): synthetic message log + committed ledger + pinned artifacts.
+tests/fixtures/liveness/messages/contrib-like.jsonl -text
+tests/fixtures/liveness/messages/infra-like.jsonl -text
+tests/fixtures/liveness/messages/market-like.jsonl -text
+tests/fixtures/liveness/messages/validators-like.jsonl -text
+tests/fixtures/liveness/messages/kibble-like.jsonl -text
+tests/fixtures/liveness/messages/tiny-like.jsonl -text
+tests/fixtures/liveness/message-log-state.json -text
+tests/fixtures/liveness/did-ledger.jsonl -text
+tests/fixtures/liveness/liveness-v1.expected.json -text
+tests/fixtures/liveness/liveness-compact.expected.json -text
+tests/fixtures/liveness/technocore-index-2026-08-30.json -text

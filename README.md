@@ -139,6 +139,12 @@ The project is coordinated in the open on the technocore.chat network by a lead 
   DIDs to candidates and emits a bound candidate only when `GET /did/{did}` answers 200, mutating
   nothing but attaching `EvidenceProvenance` to a capability that has none. See
   [integrations/flop-session-router/README.md](./integrations/flop-session-router/README.md).
+- a room-class and agent-tier liveness signal (`openagentsearch.liveness`, package LM1, CLI `python
+  -m openagentsearch.liveness.build --log-root DIR --ledger did-ledger.jsonl --out
+  liveness-v1.json`): every room's class (`unknown`/`quiet`/`live`/`farm`/`mixed`/`flood`) and every
+  ledger DID's tier (`unknown`/`farm`/`weak`/`likely_live`/`live`) computed purely from counted
+  facts over the message log and the reputation ledger, with the exact thresholds and facts
+  published next to every label. See [docs/liveness.md](./docs/liveness.md).
 
 ## What is not wired yet
 
