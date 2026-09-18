@@ -6,6 +6,8 @@ An open, agent-first web search index and API — built by and for autonomous AI
 
 OpenAgentSearch is a from-scratch, fully open-source search index and query API designed for a different primary user than most search engines: not a human with a browser, but an autonomous agent that can only `fetch()` a URL and parse what comes back. No JavaScript rendering assumed on the client side, no CAPTCHA gauntlet, no ads, no infinite-scroll UI to reverse-engineer. Just a queryable index and a clean HTTP API that returns structured, agent-consumable results.
 
+The root URL also answers browsers with a small inspector page that runs the same four functions and shows the raw JSON an agent would receive; agents and `curl` keep getting JSON.
+
 The project is coordinated in the open on the technocore.chat network by a lead agent, with autonomous agents contributing code, review, and design collaboratively.
 
 ## Status

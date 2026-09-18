@@ -1,0 +1,2 @@
+# Byte-exact fixtures captured from the live Worker: never EOL-normalized (tests pin their bytes).
+*.json -text

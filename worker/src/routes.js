@@ -1,11 +1,13 @@
 // The GET-only JSON routes (`/`, `/healthz`, `/search`, `/did/{did}`, `/route`, `/index/*`
 // redirects, 404/405/414) plus the shared rate-limiter check `worker/src/index.js` reuses for
-// `/mcp`. Deliberately imports nothing beyond `./search.js` and web standards (`Request`,
-// `Response`, `URL`) -- no `agents`, no `@modelcontextprotocol/server`, no `zod`, and (package B2)
-// no static `import ... from "../index/did-ledger-compact.json"` either, and (package D2) no
-// static `import ... from "./offer-shape.json"` either -- so `worker/test/router.test.mjs` can
-// exercise the whole JSON surface with plain Windows Node and no installed dependencies, and with
-// no build-time dependency on the gitignored ledger file existing on disk. See
+// `/mcp`, plus (package UI1) the human-facing HTML inspector page served at `GET /` on content
+// negotiation. Deliberately imports nothing beyond `./search.js` and `./page.js` and web
+// standards (`Request`, `Response`, `URL`) -- no `agents`, no `@modelcontextprotocol/server`, no
+// `zod`, and (package B2) no static `import ... from "../index/did-ledger-compact.json"` either,
+// and (package D2) no static `import ... from "./offer-shape.json"` either -- so
+// `worker/test/router.test.mjs` can exercise the whole JSON surface with plain Windows Node and
+// no installed dependencies, and with no build-time dependency on the gitignored ledger file
+// existing on disk. `./page.js` is itself data-free and import-free, still zero npm deps. See
 // `handoff/C1-DESIGN.md` §1 for the route table this implements.
 //
 // Pure over its inputs: every exported function takes `index`/`ledger`/`offerShape`/`env`/
@@ -13,8 +15,12 @@
 // not itself rate-limit `/mcp` (the MCP transport lives in `index.js`, which calls
 // {@link checkRateLimit} the same way this module does for its own routes) and does not know
 // anything about MCP tool schemas.
+//
+// Package UI1 adds the human-facing `GET /` content negotiation ({@link wantsHtml}) and the HTML
+// response it serves ({@link htmlResponse}), built from `./page.js`.
 
 import { codePointLength, search } from "./search.js";
+import { PAGE_HTML, PAGE_SCRIPT_SHA256, PAGE_STYLE_SHA256 } from "./page.js";
 
 /**
  * The set of valid `kind` values for `index` -- **never hard-coded** (`handoff/C2b-SPEC.md` §3's
@@ -104,6 +110,8 @@ function commonHeaders(index, cacheSeconds, extra = {}) {
     "x-index-generated-at": index.generated_at,
     "x-index-db-sha256": index.db_sha256,
     "cache-control": `public, max-age=${cacheSeconds}`,
+    "access-control-expose-headers":
+      "x-index-generated-at, x-index-db-sha256, x-ledger-generated-at, cache-control, retry-after",
     ...extra,
   };
 }
@@ -131,6 +139,123 @@ export function jsonResponse(index, status, body, opts = {}) {
 function redirectResponse(index, target) {
   const headers = commonHeaders(index, CARD_CACHE_SECONDS, { location: target });
   return new Response(null, { status: 302, headers });
+}
+
+/**
+ * `GET /`'s content-negotiation rule (package UI1): true iff the request wants the human HTML
+ * inspector page instead of the JSON service card. `?format=json` forces JSON unconditionally
+ * (checked first, before any `Accept` parsing) -- there is no equivalent way to force HTML.
+ * Otherwise this parses the `Accept` header per RFC 9110 (`,`-separated items, each optionally
+ * carrying a `;q=` parameter, case-insensitive parameter name, trimmed whitespace) and answers
+ * `true` only when `text/html` or `application/xhtml+xml` is present with a `q` STRICTLY greater
+ * than both `application/json`'s `q` (when present) and the bare wildcard's `q` (when present).
+ *
+ * Nine consequences this implements (see `worker/test/page.test.mjs`'s Accept matrix):
+ * 1. Chrome's default Accept (html, xhtml+xml, xml;q=0.9, images, wildcard;q=0.8) -> HTML.
+ * 2. Firefox's default Accept (html, xhtml+xml, xml;q=0.9, wildcard;q=0.8) -> HTML.
+ * 3. The bare wildcard alone (curl's default) -> JSON.
+ * 4. No `Accept` header at all -> JSON.
+ * 5. `application/json` alone -> JSON.
+ * 6. `text/html;q=0` -> JSON (`q=0` means excluded, treated as if absent).
+ * 7. `text/html, application/json` (equal, default `q=1` each) -> JSON (a tie never wins).
+ * 8. `?format=json` with any `Accept`, even Chrome's -> JSON (the query param wins outright).
+ * 9. `text/html;q=0.9` against the bare wildcard at `q=0.9` (a tie) -> JSON.
+ * Plus: a `q` that is not a finite number in `[0, 1]` (e.g. `q=abc`) makes the WHOLE function
+ * return `false` (JSON -- agents win any ambiguity); media-type matching is case-insensitive
+ * (`TEXT/HTML` -> HTML); a bare wildcard subtype (`text/*`, `application/*`) is never counted as
+ * either `html` or `json`, whatever its own `q`.
+ *
+ * @param {Request} request
+ * @param {URL} url
+ * @returns {boolean}
+ */
+export function wantsHtml(request, url) {
+  if (url.searchParams.get("format") === "json") return false;
+  const acceptRaw = request.headers.get("accept");
+  if (!acceptRaw || acceptRaw.trim() === "") return false;
+
+  let htmlQ = -1;
+  let jsonQ = -1;
+  let starQ = -1;
+
+  for (const rawItem of acceptRaw.split(",")) {
+    const parts = rawItem.split(";");
+    const mediaType = parts[0].trim().toLowerCase();
+    if (mediaType === "") continue;
+
+    let q = 1;
+    for (let i = 1; i < parts.length; i++) {
+      const eq = parts[i].indexOf("=");
+      if (eq === -1) continue;
+      const paramName = parts[i].slice(0, eq).trim().toLowerCase();
+      if (paramName !== "q") continue;
+      const value = parts[i].slice(eq + 1).trim();
+      const num = Number(value);
+      if (!Number.isFinite(num) || num < 0 || num > 1) return false;
+      q = num;
+    }
+    if (q === 0) continue; // excluded -- treated as absent, for every media type alike
+
+    if (mediaType === "text/html" || mediaType === "application/xhtml+xml") {
+      if (q > htmlQ) htmlQ = q;
+    } else if (mediaType === "application/json") {
+      if (q > jsonQ) jsonQ = q;
+    } else if (mediaType === "*/*") {
+      if (q > starQ) starQ = q;
+    }
+    // Any other media type, including a bare wildcard subtype like `text/*` or
+    // `application/*`, is deliberately ignored -- it never counts as html or json.
+  }
+
+  if (htmlQ < 0) return false;
+  if (jsonQ >= 0 && htmlQ <= jsonQ) return false;
+  if (starQ >= 0 && htmlQ <= starQ) return false;
+  return true;
+}
+
+/**
+ * The header set for the HTML inspector page (package UI1) -- deliberately NOT
+ * {@link commonHeaders}: no `access-control-allow-origin` (this is not an API response) and no
+ * `permissions-policy` (dropped deliberately -- clipboard works same-origin without it). The
+ * `Content-Security-Policy` pins the page's one `<style>`/`<script>` by hash, so no inline
+ * handler or injected script/style can execute even if the injection rule in `./page.js` were
+ * ever violated.
+ *
+ * @param {object} index a parsed `lexical-v1.json` document
+ * @returns {Record<string, string>}
+ */
+function htmlHeaders(index) {
+  return {
+    "content-type": "text/html; charset=utf-8",
+    "x-content-type-options": "nosniff",
+    "x-index-generated-at": index.generated_at,
+    "x-index-db-sha256": index.db_sha256,
+    "cache-control": "public, max-age=300",
+    vary: "Accept",
+    "referrer-policy": "no-referrer",
+    "content-security-policy":
+      "default-src 'none'; script-src 'sha256-" +
+      PAGE_SCRIPT_SHA256 +
+      "'; style-src 'sha256-" +
+      PAGE_STYLE_SHA256 +
+      "'; connect-src 'self'; img-src 'none'; font-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  };
+}
+
+/**
+ * The `GET /` HTML response (package UI1): `PAGE_HTML` verbatim, byte-identical for every
+ * request (it carries no data of its own -- see `./page.js`'s module docstring). `HEAD` answers
+ * the same status and headers with no body, the same convention every JSON route uses.
+ *
+ * @param {object} index a parsed `lexical-v1.json` document
+ * @param {string} method the original request method
+ * @returns {Response}
+ */
+export function htmlResponse(index, method) {
+  return new Response(method === "HEAD" ? null : PAGE_HTML, {
+    status: 200,
+    headers: htmlHeaders(index),
+  });
 }
 
 /**
@@ -559,7 +684,12 @@ export async function handleJsonRoute(
   }
 
   if (pathname === "/") {
-    return jsonResponse(index, 200, serviceCard(index, ledger), { method, cacheSeconds: CARD_CACHE_SECONDS });
+    if (wantsHtml(request, url)) return htmlResponse(index, method);
+    return jsonResponse(index, 200, serviceCard(index, ledger), {
+      method,
+      cacheSeconds: CARD_CACHE_SECONDS,
+      extraHeaders: { vary: "Accept" },
+    });
   }
 
   if (pathname === "/healthz") {

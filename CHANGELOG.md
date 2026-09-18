@@ -37,6 +37,17 @@ package publication, or hosted release exists.
   concurrent lookups. Ships with six `-text` fixtures (verbatim live `GET /did/{did}` and
   `GET /healthz` bodies captured 2026-09-18) and a `test/provider.test.ts` covering all of the above
   against an injected `fetch` stub; no network in tests, and nothing else in the repository changes.
+- package UI -- `worker/src/page.js` (the inspector page: four panels mirroring
+  `search`/`did_lookup`/`route`/`index_info`, raw-JSON toggle, copy-curl, copy-MCP-call, fragment
+  deep links; no data in the HTML, text-only DOM, CSP with pinned hashes, no external assets;
+  styled in the FLOP register -- navy/charcoal/cyan, monospace headings, dark only -- with the
+  font stacks falling back to the system faces since nothing external is loaded),
+  `GET /` content negotiation in `worker/src/routes.js` (`wantsHtml`: HTML only when `Accept`
+  ranks `text/html` strictly above `application/json` and `*/*`; ties/`*/*`/no header/
+  `?format=json` -> the unchanged JSON card; `Vary: Accept`), `Access-Control-Expose-Headers` on
+  every JSON response, `worker/test/page.test.mjs` (Accept matrix, agent-contract pin against the
+  captured live card `worker/test/fixtures/service-card.before.json`, CSP hash pin, page
+  hygiene), docs in `docs/api.md` "Browsers" + "Inspector page (humans)". No version bump.
 
 ## 0.3.0 - 2026-09-17
 

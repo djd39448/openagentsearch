@@ -16,7 +16,7 @@ only thing that changes.
 
 ## JSON routes
 
-Every response carries: `Content-Type: application/json; charset=utf-8`,
+Every JSON response carries: `Content-Type: application/json; charset=utf-8`,
 `Access-Control-Allow-Origin: *`, `X-Content-Type-Options: nosniff`, `X-Index-Generated-At` and
 `X-Index-Db-Sha256` (both copied from the bundled index, so staleness is always visible), and
 `Cache-Control: public, max-age=60` on `/search` and `/route`, `public, max-age=300` everywhere
@@ -26,7 +26,11 @@ rate-limited: **60 requests per 60 seconds per client IP per Cloudflare location
 Rate Limiting binding is "permissive, eventually consistent" — see
 [`handoff/C1-DESIGN.md`](../handoff/C1-DESIGN.md) §1). Any path over 256 characters is refused
 before routing. Every `/did/{did}` response, and every `/route` response, also carries
-`X-Ledger-Generated-At` whenever a reputation ledger is loaded (see those routes below).
+`X-Ledger-Generated-At` whenever a reputation ledger is loaded (see those routes below). Every
+JSON response also carries `Access-Control-Expose-Headers: x-index-generated-at,
+x-index-db-sha256, x-ledger-generated-at, cache-control, retry-after` (so a cross-origin agent can
+read them), and `GET /` alone additionally carries `Vary: Accept` (see "Browsers" below; the HTML
+response is the one documented exception to "every JSON response").
 
 ### `GET /`
 
@@ -53,6 +57,16 @@ curl https://openagentsearch.trustcoresystems.workers.dev/
 
 `ledger` is `null` when the Worker was built without a compact reputation ledger — see
 `GET /did/{did}` below.
+
+**Browsers.** `GET /` negotiates content: it answers HTML only when the request's `Accept` header
+ranks `text/html` or `application/xhtml+xml` strictly above both `application/json` and `*/*`;
+a tie, a bare `*/*`, a missing `Accept` header, or any wildcard subtype all fall through to JSON
+(agents win any ambiguity). `?format=json` forces the JSON card whatever the `Accept` header says
+— there is no equivalent way to force HTML. The HTML response carries `Content-Type: text/html;
+charset=utf-8`, `Vary: Accept`, a `Content-Security-Policy` pinning the page's one `<style>` and
+`<script>` by hash, `Referrer-Policy: no-referrer`, no CORS header, and `Cache-Control: public,
+max-age=300`. The HTML carries no data; every number you see is a live fetch of the routes below.
+`curl` and every agent keep getting the JSON card.
 
 ### `GET /healthz`
 
@@ -317,6 +331,25 @@ use).
 (`https://djd39448.github.io/openagentsearch/index/...`) — see
 [docs/static-index.md](./static-index.md) for their schemas. The Worker never serves these bytes
 itself.
+
+## Inspector page (humans)
+
+The root URL (`GET /`) rendered for a browser instead of an agent (package UI1) — see "Browsers"
+above for the negotiation rule. It is a client of the public routes above, with the same rate
+limit (60 requests/60 seconds; `/` and `/healthz` are exempt, exactly like every other client).
+Four panels mirror the four MCP tools (`search`, `did_lookup`, `route`, `index_info`); each
+panel's "Raw JSON" `<details>` shows the response body exactly as received — byte-identical to
+what an agent gets from the same request — plus "Copy curl" and "Copy MCP call" buttons that copy
+an equivalent request for that exact query. It fires one request per user action and never polls
+or auto-refreshes; state lives only in the URL fragment, never sent back to the server; there are
+no cookies, no `localStorage`/`sessionStorage`/`indexedDB`, and no external assets (no CDN, font,
+image, or analytics of any kind — the page is styled after flop.finance's palette and type, but
+loads none of its assets; without Space Mono/Inter installed locally the system faces are used).
+Response data is rendered as plain text only.
+
+Deep-link fragment grammar (using the base URL above): `#search?q=authentication&k=5`,
+`#did?did=did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf`,
+`#route?model_hash=llama3-70b-instruct-q4&precision=fp16&k=5`, `#health`.
 
 ## Errors
 
