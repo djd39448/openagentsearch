@@ -96,12 +96,24 @@ for (const c of ACCEPT_CASES) {
 
 // --- 2. Agent contract unchanged --------------------------------------------------------------
 
-test("GET / JSON body: key order matches the captured live fixture", { timeout: 10000 }, async () => {
+test("GET / JSON body: key order is the captured live fixture's plus `inspector` before `ledger`", { timeout: 10000 }, async () => {
+  // The one deliberate addition to the pre-UI card (Dave's word, 2026-09-18): `inspector`, the
+  // Worker's own root URL, inserted after `static_index`. Every other key keeps its place.
   const worker = makeWorker(INDEX, LEDGER, OFFER_SHAPE);
   const res = await worker.fetch(req("/"), ALWAYS_ALLOW);
   const text = await res.text();
   const body = JSON.parse(text);
-  assert.deepEqual(Object.keys(body), Object.keys(FIXTURE_CARD));
+  const expected = Object.keys(FIXTURE_CARD);
+  expected.splice(expected.indexOf("static_index") + 1, 0, "inspector");
+  assert.deepEqual(Object.keys(body), expected);
+  assert.equal(body.inspector, `${BASE}/`);
+});
+
+test("GET / `inspector` is the request's own origin, so it is right under wrangler dev too", { timeout: 10000 }, async () => {
+  const worker = makeWorker(INDEX, LEDGER, OFFER_SHAPE);
+  const res = await worker.fetch(new Request("http://127.0.0.1:8787/?x=1", { method: "GET" }), ALWAYS_ALLOW);
+  const body = await res.json();
+  assert.equal(body.inspector, "http://127.0.0.1:8787/");
 });
 
 test("GET / JSON body: service/routes/tools/docs/static_index match the fixture's", { timeout: 10000 }, async () => {

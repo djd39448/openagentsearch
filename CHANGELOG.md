@@ -47,7 +47,9 @@ package publication, or hosted release exists.
   `?format=json` -> the unchanged JSON card; `Vary: Accept`), `Access-Control-Expose-Headers` on
   every JSON response, `worker/test/page.test.mjs` (Accept matrix, agent-contract pin against the
   captured live card `worker/test/fixtures/service-card.before.json`, CSP hash pin, page
-  hygiene), docs in `docs/api.md` "Browsers" + "Inspector page (humans)". No version bump.
+  hygiene), docs in `docs/api.md` "Browsers" + "Inspector page (humans)". The service card gains
+  one field, `inspector` (the request's own origin + `/`, inserted before `ledger`; every other key
+  unchanged). No version bump.
 - `.github/workflows/flop-session-router-provider.yml` + `integrations/flop-session-router/journey/`
   + `PINS.md` (package RP2): CI that checks out `retardio73-boop/flop-session-router` pinned by
   full commit SHA (`dba6525554c4ea5965ef6dd23e93194736aa0ef3`, never a branch), builds it,

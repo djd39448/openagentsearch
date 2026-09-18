@@ -339,10 +339,13 @@ function ledgerSummary(ledger) {
  *
  * @param {object} index
  * @param {object | null} [ledger] a parsed `did-ledger-compact.json` document, or `null`/omitted
+ * @param {string | null} [origin] the Worker's own origin (`new URL(request.url).origin`) -- when
+ *   given, the card carries `inspector: "<origin>/"`, the same URL rendered for a browser (package
+ *   UI1); omitted/`null` leaves the field out (a card built with no request in hand)
  * @returns {object}
  */
-export function serviceCard(index, ledger = null) {
-  return {
+export function serviceCard(index, ledger = null, origin = null) {
+  const card = {
     service: "openagentsearch",
     generated_at: index.generated_at,
     db_sha256: index.db_sha256,
@@ -351,8 +354,10 @@ export function serviceCard(index, ledger = null) {
     tools: TOOL_LIST,
     docs: "https://github.com/djd39448/openagentsearch/blob/main/docs/api.md",
     static_index: `${STATIC_INDEX_BASE}/`,
-    ledger: ledgerSummary(ledger),
   };
+  if (typeof origin === "string") card.inspector = `${origin}/`;
+  card.ledger = ledgerSummary(ledger);
+  return card;
 }
 
 /**
@@ -685,7 +690,7 @@ export async function handleJsonRoute(
 
   if (pathname === "/") {
     if (wantsHtml(request, url)) return htmlResponse(index, method);
-    return jsonResponse(index, 200, serviceCard(index, ledger), {
+    return jsonResponse(index, 200, serviceCard(index, ledger, url.origin), {
       method,
       cacheSeconds: CARD_CACHE_SECONDS,
       extraHeaders: { vary: "Accept" },

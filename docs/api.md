@@ -51,12 +51,15 @@ curl https://openagentsearch.trustcoresystems.workers.dev/
   "tools": ["search", "did_lookup", "index_info", "route"],
   "docs": "https://github.com/djd39448/openagentsearch/blob/main/docs/api.md",
   "static_index": "https://djd39448.github.io/openagentsearch/",
+  "inspector": "https://openagentsearch.trustcoresystems.workers.dev/",
   "ledger": {"dids": 53856, "bursts": 12, "generated_at": "2026-09-16T05:20:00Z"}
 }
 ```
 
 `ledger` is `null` when the Worker was built without a compact reputation ledger — see
-`GET /did/{did}` below.
+`GET /did/{did}` below. `inspector` is this same root URL as a browser sees it (the request's own
+origin plus `/` — see "Browsers" below); an agent that wants to hand a human a link to what it just
+read can pass this field along with a fragment from "Inspector page (humans)".
 
 **Browsers.** `GET /` negotiates content: it answers HTML only when the request's `Accept` header
 ranks `text/html` or `application/xhtml+xml` strictly above both `application/json` and `*/*`;
