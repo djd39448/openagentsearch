@@ -1,0 +1,47 @@
+# Poll set for the OpenAgentSearch daily refresh gate (decision-batch 2026-09-29, item 1a).
+#
+# What this is: the FIXED, committed list of rooms that index-refresh-sanity.py's `--poll-set`
+# counts against, on both the new and the published liveness-v1.json, when deciding whether the
+# map's "rooms classified" (class != unknown) has shrunk more than 10%. Before this file existed,
+# the gate counted classified rooms across the WHOLE 38-room map; but the message-log poller
+# (message-log-run.ps1) only ever feeds fresh rows to the eight explicit rooms below plus whatever
+# the newest (unpublished) map itself currently classes live/mixed/quiet -- so a room the map marks
+# unknown/farm leaves the poller, gets no new rows, and is guaranteed to stay unknown forever. That
+# ratchet took rooms_classified from 35 to 17 over four days (09-24..09-27) and tripped the gate
+# (exit 5) every day: the map was frozen, not the ledger/index.
+#
+# Scoping the gate to "whatever the map currently selects" would be circular (the poller's shrink
+# would let the gate's baseline shrink with it). Scoping it to this FIXED list breaks that loop: the
+# gate now only asks "did a room we are actually polling go silent", not "did the poller narrow
+# itself again". Rooms outside this list may be added or dropped from the poller/map at will and
+# are simply logged (see index-refresh-run.ps1 step 3b's informational lines), never counted here.
+#
+# THE ONLY SANCTIONED RE-SCOPE: editing this file (adding or removing a room) is the one approved
+# way to change what the gate protects. A removal that would otherwise trip the no-shrink gate
+# still needs the one-shot `oas-index\ALLOW-SHRINK` marker for that run, same as any other
+# intentional shrink -- ALLOW-SHRINK is not a substitute for editing this file, and this file is not
+# a substitute for ALLOW-SHRINK when the resulting count actually drops. # ALLOW-SHRINK
+#
+# Contents as of 2026-09-27 (12 rooms): the eight explicit rooms message-log-run.ps1 always polls,
+# plus the four rooms not already in that list that the CURRENT on-disk build
+# (oas-index\site\index\liveness-v1.json, built 2026-09-27T08:38Z) classes live, mixed, or quiet.
+# The build's own live/mixed/quiet set that day was 9 rooms (live: dev, random; mixed: flop; quiet:
+# builders, cryptoonflop, d-technoverse, flop-dao, github-contrib, overheard-proofs); five of those
+# nine (builders, d-technoverse, flop-dao, github-contrib, overheard-proofs) already are explicit
+# rooms below, leaving four net-new (dev, random, flop, cryptoonflop) -- hence 8 + 4 = 12.
+
+# -- the eight explicit rooms (message-log-run.ps1 lines 49-52) --
+builders
+github-contrib
+arxiv-jam
+overheard-proofs
+d-technoverse
+flop-dao
+flop-governance
+d-hayes
+
+# -- rooms the 2026-09-27 build classes live/mixed/quiet, not already listed above --
+dev
+random
+flop
+cryptoonflop
