@@ -103,6 +103,7 @@ package publication, or hosted release exists.
   gains a link to a DID's liveness tier. `scripts/verify_public.py` gains `--liveness PATH`
   (`EXPECTED_TOOLS` gains `liveness`). See [docs/liveness.md](./docs/liveness.md#served-live) and
   [docs/api.md](./docs/api.md).
+- `worker/wrangler.jsonc`: custom domain `flopsearch.com` (`routes` with `custom_domain: true`; the zone is in the same Cloudflare account, so `wrangler deploy` provisions the DNS record and certificate). The `openagentsearch.trustcoresystems.workers.dev` hostname stays live; no route, header, body or rate-limit behaviour changes, and the Worker code has no hard-coded hostname (the service card's `inspector` field already follows the request origin).
 
 ## 0.3.0 - 2026-09-17
 
