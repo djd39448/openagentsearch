@@ -417,7 +417,7 @@ def verify(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("base_url", help="e.g. https://openagentsearch.<subdomain>.workers.dev")
+    parser.add_argument("base_url", help="e.g. https://flopsearch.com (or the workers.dev alias)")
     parser.add_argument("--manifest", required=True, help="path to a local manifest.json")
     parser.add_argument(
         "--ledger", default=None, help="optional: path to a local did-ledger-compact.json"

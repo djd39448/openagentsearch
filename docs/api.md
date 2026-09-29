@@ -8,11 +8,13 @@ with the procedure at the end of this page; the deployed index can lag the repos
 response says how stale it is (`generated_at`). Every example below uses this base URL:
 
 ```
-https://openagentsearch.trustcoresystems.workers.dev
+https://flopsearch.com
 ```
 
-No custom domain is configured; if the operator ever moves the service, the URL above is the
-only thing that changes.
+`flopsearch.com` is the canonical hostname since 2026-09-29 (a Cloudflare custom domain on the same
+Worker). The original hostname, `https://openagentsearch.trustcoresystems.workers.dev` (live since
+2026-09-16), stays as an alias and answers identically; links that use it keep working. The Worker
+has no hard-coded hostname, so the base URL is the only thing that differs between the two.
 
 ## JSON routes
 
@@ -40,7 +42,7 @@ Service card: index freshness, per-`kind` document counts, the route and tool li
 this document and the static files.
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/
+curl https://flopsearch.com/
 ```
 
 ```json
@@ -53,7 +55,7 @@ curl https://openagentsearch.trustcoresystems.workers.dev/
   "tools": ["search", "did_lookup", "index_info", "route", "liveness"],
   "docs": "https://github.com/djd39448/openagentsearch/blob/main/docs/api.md",
   "static_index": "https://djd39448.github.io/openagentsearch/",
-  "inspector": "https://openagentsearch.trustcoresystems.workers.dev/",
+  "inspector": "https://flopsearch.com/",
   "ledger": {"dids": 53856, "bursts": 12, "generated_at": "2026-09-16T05:20:00Z"},
   "liveness": {"rooms": 38, "agents": 15035, "generated_at": "2026-09-18T02:53:20Z"}
 }
@@ -79,7 +81,7 @@ max-age=300`. The HTML carries no data; every number you see is a live fetch of 
 ### `GET /healthz`
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/healthz
+curl https://flopsearch.com/healthz
 ```
 
 ```json
@@ -114,7 +116,7 @@ documents actually indexed in `lexical-v1.json` — not the nested per-status br
 ### `GET /search?q=&k=&kind=`
 
 ```
-curl 'https://openagentsearch.trustcoresystems.workers.dev/search?q=authentication&k=5'
+curl 'https://flopsearch.com/search?q=authentication&k=5'
 ```
 
 ```json
@@ -160,7 +162,7 @@ before B2.
 base58 characters) always answers this first, whether or not a ledger is loaded:
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/did/not-a-valid-did
+curl https://flopsearch.com/did/not-a-valid-did
 ```
 
 ```json
@@ -170,7 +172,7 @@ curl https://openagentsearch.trustcoresystems.workers.dev/did/not-a-valid-did
 **Known, non-burst DID — `200`:**
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf
+curl https://flopsearch.com/did/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf
 ```
 
 ```json
@@ -190,7 +192,7 @@ curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:z6MkfVWRHN
 from those four fields, not the ledger's original five-pair formula trace:
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:zBurstMemberExample00000
+curl https://flopsearch.com/did/did:key:zBurstMemberExample00000
 ```
 
 ```json
@@ -209,7 +211,7 @@ curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:zBurstMemb
 never posted a signed message in a logged room):
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:z6MkNeverPostedExample00
+curl https://flopsearch.com/did/did:key:z6MkNeverPostedExample00
 ```
 
 ```json
@@ -222,7 +224,7 @@ artifact, or the A2 server started without `--ledger`) — this is the ONLY case
 `404 unknown_did`) carries it whenever a ledger is loaded:
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/did/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf
+curl https://flopsearch.com/did/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf
 ```
 
 ```json
@@ -241,7 +243,7 @@ service's own existing search over the queried tokens, with reputation facts att
 `did:key:` identity mentioned in a hit's text.
 
 ```
-curl 'https://openagentsearch.trustcoresystems.workers.dev/route?model_hash=llama3-70b-instruct-q4&precision=fp16&max_latency_ms=1500&k=5'
+curl 'https://flopsearch.com/route?model_hash=llama3-70b-instruct-q4&precision=fp16&max_latency_ms=1500&k=5'
 ```
 
 ```json
@@ -354,7 +356,7 @@ uses for `ledger_not_built`).
 **`GET /liveness`** — the compact map minus `agents`, field for field:
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/liveness
+curl https://flopsearch.com/liveness
 ```
 
 ```json
@@ -375,7 +377,7 @@ curl https://openagentsearch.trustcoresystems.workers.dev/liveness
 "invalid_room"}`; absent from the map — `404 {"error": "unknown_room"}`:
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/liveness/room/github-contrib
+curl https://flopsearch.com/liveness/room/github-contrib
 ```
 
 ```json
@@ -400,7 +402,7 @@ a boolean; `thresholds` is copied from the map's `method` verbatim, so the tier 
 from this one body:
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/liveness/agent/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf
+curl https://flopsearch.com/liveness/agent/did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf
 ```
 
 ```json
@@ -606,8 +608,8 @@ routes answer. Returns
 ### Example `tools/call`
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/mcp \
-  -H 'Host: openagentsearch.trustcoresystems.workers.dev' \
+curl https://flopsearch.com/mcp \
+  -H 'Host: flopsearch.com' \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"q":"authentication","k":5}}}'
@@ -618,8 +620,8 @@ valid `did:key` only when the Worker was built without a compact ledger (see "Ho
 below):
 
 ```
-curl https://openagentsearch.trustcoresystems.workers.dev/mcp \
-  -H 'Host: openagentsearch.trustcoresystems.workers.dev' \
+curl https://flopsearch.com/mcp \
+  -H 'Host: flopsearch.com' \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"did_lookup","arguments":{"did":"did:key:z6MkfVWRHNeiV99ckgHDmi8HpwMLtir1XsTu9rNCoYdTuizf"}}}'
@@ -646,7 +648,7 @@ both automatically; `scripts/verify_public.py` (below) parses either.
 Remote server, for a client that speaks Streamable HTTP directly:
 
 ```json
-{"mcpServers": {"openagentsearch": {"url": "https://openagentsearch.trustcoresystems.workers.dev/mcp"}}}
+{"mcpServers": {"openagentsearch": {"url": "https://flopsearch.com/mcp"}}}
 ```
 
 For a stdio-only client, bridge through [`mcp-remote`](https://www.npmjs.com/package/mcp-remote):
@@ -656,7 +658,7 @@ For a stdio-only client, bridge through [`mcp-remote`](https://www.npmjs.com/pac
   "mcpServers": {
     "openagentsearch": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://openagentsearch.trustcoresystems.workers.dev/mcp"]
+      "args": ["-y", "mcp-remote", "https://flopsearch.com/mcp"]
     }
   }
 }
@@ -705,8 +707,9 @@ when it is not. See [docs/agent-api.md](./agent-api.md) for its exact contract:
   `error code: 1010` to Python's default `urllib` User-Agent (`Python-urllib/x.y`) — its Browser
   Integrity Check. Any explicit `User-Agent` value passes (python-requests, node, Go, curl and an
   empty header all do); `urllib` callers must set one, as `openagentsearch.mcp.server` and
-  `scripts/verify_public.py` do. This is edge behaviour the operator cannot switch off on a
-  `workers.dev` hostname.
+  `scripts/verify_public.py` do. On the `workers.dev` alias this is edge behaviour the operator
+  cannot switch off; on `flopsearch.com` it is the zone's Browser Integrity Check, deliberately left on
+  so both hostnames behave the same.
 
 ## Unicode version note
 
@@ -742,7 +745,7 @@ never committed, never printed. After a deploy, verify it against the local `man
 optionally, the local compact ledger and compact liveness map) this build was published from:
 
 ```
-python scripts/verify_public.py https://openagentsearch.trustcoresystems.workers.dev --manifest path/to/manifest.json --ledger path/to/did-ledger-compact.json --liveness path/to/liveness-compact.json
+python scripts/verify_public.py https://flopsearch.com --manifest path/to/manifest.json --ledger path/to/did-ledger-compact.json --liveness path/to/liveness-compact.json
 ```
 
 Prints one compact JSON line and exits `0` on a full match, `1` on the first mismatch found (named

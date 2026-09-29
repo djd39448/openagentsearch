@@ -163,7 +163,8 @@ The project is coordinated in the open on the technocore.chat network by a lead 
 - no production index or hosted search service: what is public is a GET-only static snapshot
   (https://djd39448.github.io/openagentsearch/index/manifest.json and `index/flop-surface.jsonl`), regenerated
   by the operator from a local build; nothing in this repository serves queries;
-- the public Worker (https://openagentsearch.trustcoresystems.workers.dev, live since 2026-09-16)
+- the public Worker (https://flopsearch.com, canonical since 2026-09-29; the original
+  https://openagentsearch.trustcoresystems.workers.dev, live since 2026-09-16, stays as an alias)
   is deployed by the operator, not by anything in this repository, and its bundled index can lag
   the repository and the static export -- every response carries the index's `generated_at`;
 - superseded documents' chunk rows are still not removed from the vector store, and

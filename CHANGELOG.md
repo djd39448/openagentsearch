@@ -105,6 +105,14 @@ package publication, or hosted release exists.
   [docs/api.md](./docs/api.md).
 - `worker/wrangler.jsonc`: custom domain `flopsearch.com` (`routes` with `custom_domain: true`; the zone is in the same Cloudflare account, so `wrangler deploy` provisions the DNS record and certificate). The `openagentsearch.trustcoresystems.workers.dev` hostname stays live; no route, header, body or rate-limit behaviour changes, and the Worker code has no hard-coded hostname (the service card's `inspector` field already follows the request origin).
 
+### Changed
+
+- Canonical public URL is now `https://flopsearch.com` (README, `docs/api.md` examples and MCP configs,
+  `scripts/verify_public.py` help text). `https://openagentsearch.trustcoresystems.workers.dev` remains a
+  live alias with identical behaviour; nothing in `worker/src` changed. The provider package under
+  `integrations/flop-session-router/` keeps the workers.dev default and fixtures on purpose: they are
+  pinned evidence (`PINS.md`, the CI journey) and the alias stays valid.
+
 ## 0.3.0 - 2026-09-17
 
 0.3.0 is the current repository/package version, tagged `v0.3.0` in git by the owner's
