@@ -11,8 +11,10 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   // Custom domain (2026-09-29): the zone `flopsearch.com` is registered in the same Cloudflare account, so
-  // `wrangler deploy` creates the DNS record and certificate itself. The `openagentsearch.trustcoresystems.workers.dev`
-  // hostname stays live (workers_dev defaults to true) so every published link keeps working.
+  // `wrangler deploy` creates the DNS record and certificate itself. `workers_dev` MUST stay explicitly true: once
+  // `routes` exist wrangler disables the workers.dev hostname unless told otherwise (it did, on the first deploy), and
+  // every published link points at `openagentsearch.trustcoresystems.workers.dev`.
+  "workers_dev": true,
   "routes": [
     { "pattern": "flopsearch.com", "custom_domain": true }
   ],
