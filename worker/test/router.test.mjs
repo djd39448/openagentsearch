@@ -391,6 +391,48 @@ test("an unknown well-formed did answers 404 unknown_did, with a ledger loaded",
   assert.equal(res.headers.get("x-ledger-generated-at"), LEDGER.generated_at);
 });
 
+// Package CT: a size-fitted ledger keeps only the DIDs last seen at or after `served.last_seen_min_ts`.
+function servedLedger() {
+  const cutoff = LEDGER.non_burst[NON_BURST_DID].facts.last_seen_ts;
+  const nonBurst = Object.fromEntries(
+    Object.entries(LEDGER.non_burst).filter(([, row]) => row.facts.last_seen_ts >= cutoff),
+  );
+  return {
+    ...LEDGER,
+    non_burst: nonBurst,
+    burst: {},
+    served: { dids: Object.keys(nonBurst).length, last_seen_min_ts: cutoff },
+  };
+}
+
+test("a size-fitted ledger: a served DID's provenance carries `served`, a miss says what is served", async () => {
+  const ledger = servedLedger();
+  const worker = makeWorker(INDEX, ledger);
+  const hit = await worker.fetch(req(`/did/${NON_BURST_DID}`), ALWAYS_ALLOW);
+  assert.equal(hit.status, 200);
+  const body = await hit.json();
+  assert.deepEqual(Object.keys(body.provenance), [
+    "ledger_generated_at", "log_rows", "posts", "dids", "bursts", "schema", "served",
+  ]);
+  assert.deepEqual(body.provenance.served, ledger.served);
+  assert.equal(body.provenance.dids, LEDGER.dids); // the whole ledger's count, not the served one
+  const miss = await worker.fetch(req(`/did/${BURST_DID}`), ALWAYS_ALLOW);
+  assert.equal(miss.status, 404);
+  assert.deepEqual(await miss.json(), { error: "unknown_did", served: ledger.served });
+  const health = await (await worker.fetch(req("/healthz"), ALWAYS_ALLOW)).json();
+  assert.deepEqual(health.ledger, {
+    dids: LEDGER.dids, bursts: LEDGER.bursts, generated_at: LEDGER.generated_at, served: ledger.served,
+  });
+});
+
+test("a ledger without `served` answers exactly as before: no served key anywhere", async () => {
+  const worker = makeWorker(INDEX, LEDGER);
+  const body = await (await worker.fetch(req(`/did/${NON_BURST_DID}`), ALWAYS_ALLOW)).json();
+  assert.equal("served" in body.provenance, false);
+  const health = await (await worker.fetch(req("/healthz"), ALWAYS_ALLOW)).json();
+  assert.equal("served" in health.ledger, false);
+});
+
 test("a malformed did is 400 invalid_did even with a ledger loaded, header still present", async () => {
   const worker = makeWorker(INDEX, LEDGER);
   const res = await worker.fetch(req("/did/not-a-valid-did"), ALWAYS_ALLOW);

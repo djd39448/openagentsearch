@@ -180,10 +180,21 @@ measured, this partition put 49,558 of 53,856 DIDs in `burst` (~5 MB there) and 
 3,554 in `non_burst` (~3.5 MB) -- the whole reason this artifact exists.
 
 `write_compact_ledger(ledger, out_path, max_bytes=32 MiB)` writes it atomically (temp file +
-`os.replace`, the same convention every writer in this repository uses), refusing an oversize
-artifact before creating any file. `load_compact_ledger(path)` is fail-closed the same way
-`load_ledger` is (wrong schema, a malformed row, a `did` present in BOTH maps, a header `dids`
-count that disagrees with the actual row count -- all raise `ValueError`), returning a
+`os.replace`, the same convention every writer in this repository uses). The artifact is
+**size-bounded by construction** (package CT, 2026-09-30): when the whole ledger fits
+`max_bytes` the bytes are exactly `to_compact_json_bytes(ledger)`; past it,
+`fit_compact_json_bytes` ranks DIDs by `facts.last_seen_ts`, newest first, keeps the longest run
+that fits, and cuts back to a timestamp boundary, so the kept set is exactly "every DID last seen
+at or after `served.last_seen_min_ts`". The header then gains `"served": {"dids": M,
+"last_seen_min_ts": T}`; `dids` stays the whole ledger's count. It refuses (with
+`CompactLedgerSizeError`, before creating any file) only when not even the newest DIDs fit. Why a
+byte budget rather than a time window: on the 2026-09-30 log, 32,338 of 44,236 DIDs had posted
+within 7 days, so no window bounds the size; the full ledger overran the 32 MiB guard on
+2026-09-29 and froze `/did` at the 09-28 build until this change. `load_compact_ledger(path)` is
+fail-closed the same way `load_ledger` is (wrong schema, a malformed row, a `did` present in BOTH
+maps, a header `dids` count that disagrees with the actual row count, or -- with `served` -- a
+`served.dids` that disagrees with the row count or is not below `dids`, or a row last seen
+before the cutoff -- all raise `ValueError`), returning a
 `CompactLedger` whose `lookup(did)` is exactly the `/did/{did}` 200 response body -- see
 `docs/api.md`'s contract, which `openagentsearch.api.did`, the Cloudflare Worker's
 `lookupDid()`/`did_lookup` tool, and the local MCP relay all answer identically.
@@ -272,8 +283,10 @@ the snapshot -- any other value produces a different, still-valid, but not byte-
    which also documents pointing the A2 server at the same file with `--ledger PATH`.
 4. Verify with `python scripts/verify_public.py BASE_URL --manifest PATH --ledger
    did-ledger-compact.json` -- it checks the deployed `/healthz`'s `ledger.dids`/`generated_at`
-   against the local file, and that `GET BASE_URL/did/<the project's own DID>` answers `200` with
-   the same `facts.first_seen_seq` the local file records.
+   (and `ledger.served`, for a size-fitted file) against the local file, and that
+   `GET BASE_URL/did/<probe DID>` answers `200` with the same `facts.first_seen_seq` the local
+   file records. The probe is the project's own DID while the compact file holds it, else the
+   file's first non-burst DID in sorted order.
 
 ## What this is NOT
 

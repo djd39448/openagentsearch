@@ -337,7 +337,21 @@ function countsByKind(index) {
  */
 function ledgerSummary(ledger) {
   if (ledger == null) return null;
-  return { dids: ledger.dids, bursts: ledger.bursts, generated_at: ledger.generated_at };
+  const summary = { dids: ledger.dids, bursts: ledger.bursts, generated_at: ledger.generated_at };
+  // Package CT: a size-fitted ledger holds only the DIDs last seen at or after the cutoff.
+  if (ledger.served != null) summary.served = servedScope(ledger);
+  return summary;
+}
+
+/**
+ * `{dids, last_seen_min_ts}` of a size-fitted compact ledger (package CT) -- copied field by field
+ * so a response never carries anything the artifact's `served` header did not.
+ *
+ * @param {object} ledger a parsed `did-ledger-compact.json` document that has `served`
+ * @returns {{dids: number, last_seen_min_ts: number}}
+ */
+function servedScope(ledger) {
+  return { dids: ledger.served.dids, last_seen_min_ts: ledger.served.last_seen_min_ts };
 }
 
 /**
@@ -471,6 +485,7 @@ export function lookupDid(ledger, did) {
     bursts: ledger.bursts,
     schema: ledger.schema,
   };
+  if (ledger.served != null) provenance.served = servedScope(ledger);
   const row = ledger.non_burst[did];
   if (row !== undefined) {
     return {
@@ -505,6 +520,11 @@ export function lookupDid(ledger, did) {
         provenance,
       },
     };
+  }
+  // A size-fitted ledger (package CT) says which DIDs it holds, so a miss is not read as "never
+  // posted": the full ledger (did-ledger.jsonl on GitHub Pages) still has every DID.
+  if (ledger.served != null) {
+    return { status: 404, body: { error: "unknown_did", served: servedScope(ledger) } };
   }
   return { status: 404, body: { error: "unknown_did" } };
 }

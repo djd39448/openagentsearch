@@ -7,8 +7,11 @@ names exactly the four documented tools (`search`, `did_lookup`, `index_info`, `
 `--ledger PATH` (optional, package B2) additionally checks the deployed reputation ledger against
 a local compact artifact (`openagentsearch.reputation.compact`'s `did-ledger-compact.json`): the
 live `/healthz`'s `ledger.dids` and `ledger.generated_at` must match the local file's own `dids`/
-`generated_at`, and `GET BASE_URL/did/<OUR_DID>` must answer `200` with the same `facts.
-first_seen_seq` the local file records for that DID -- the B2 done-when in BUILDSPEC §3.
+`generated_at`, and `GET BASE_URL/did/<probe DID>` must answer `200` with the same `facts.
+first_seen_seq` the local file records for that DID -- the B2 done-when in BUILDSPEC §3. The probe
+DID is OUR_DID while the local file holds it; a size-fitted file (package CT) may not, since it
+keeps only the most recently active DIDs, so the probe is then its first non-burst DID in sorted
+order, and the live `/healthz`'s `ledger.served` must equal the local file's own `served`.
 
 `--liveness PATH` (optional, package LM3) additionally checks the deployed liveness map against a
 local compact artifact (`openagentsearch.liveness.build`'s `liveness-compact.json`): the live
@@ -228,6 +231,17 @@ def _load_local_liveness(liveness_path: str) -> dict[str, Any]:
     return parsed
 
 
+def _local_ledger_probe_did(ledger: dict[str, Any], ledger_path: str) -> str:
+    """OUR_DID when the local file holds it as a non-burst row, else (a size-fitted file that
+    dropped it, package CT) the first non-burst DID in sorted order -- deterministic either way."""
+    non_burst = ledger.get("non_burst")
+    if not isinstance(non_burst, dict) or not non_burst:
+        raise VerifyError(f"ledger {ledger_path} has no non_burst entries to probe")
+    if OUR_DID in non_burst or "served" not in ledger:
+        return OUR_DID
+    return min(non_burst)
+
+
 def _local_ledger_first_seen_seq(ledger: dict[str, Any], did: str, ledger_path: str) -> int:
     non_burst = ledger.get("non_burst")
     if isinstance(non_burst, dict):
@@ -344,14 +358,22 @@ def verify(
                 f"live={live_ledger.get('generated_at')!r} local={local_generated_at!r}"
             )
 
-        local_first_seen_seq = _local_ledger_first_seen_seq(local_ledger, OUR_DID, ledger_path)
+        local_served = local_ledger.get("served")
+        if live_ledger.get("served") != local_served:
+            raise VerifyError(
+                f"ledger served mismatch: "
+                f"live={live_ledger.get('served')!r} local={local_served!r}"
+            )
+
+        probe_did = _local_ledger_probe_did(local_ledger, ledger_path)
+        local_first_seen_seq = _local_ledger_first_seen_seq(local_ledger, probe_did, ledger_path)
         # NOT percent-encoded: the Worker's `/did/{did}` route (`worker/src/routes.js`) reads
         # `did` straight off `new URL(request.url).pathname` with no decoding step, so an encoded
         # colon (`%3A`) would fail its `DID_RE` check and this would 400 `invalid_did` against a
-        # perfectly correct deploy -- OUR_DID's `did:key:` colons are legal, unescaped characters
-        # in a URL path segment and need no escaping here. (The A2 server DOES percent-decode,
+        # perfectly correct deploy -- the probe DID's `did:key:` colons are legal, unescaped
+        # characters in a URL path segment and need no escaping here. (The A2 server DOES percent-decode,
         # `openagentsearch.api.did`, but this script's documented target is the deployed Worker.)
-        did_url = f"{base_url}/did/{OUR_DID}"
+        did_url = f"{base_url}/did/{probe_did}"
         did_body = _http_get_json(did_url, timeout)
         did_facts = did_body.get("facts")
         if not isinstance(did_facts, dict) or not isinstance(did_facts.get("first_seen_seq"), int):
@@ -366,6 +388,9 @@ def verify(
         report["ledger_dids"] = local_dids
         report["ledger_generated_at"] = local_generated_at
         report["first_seen_seq"] = local_first_seen_seq
+        if local_served is not None:
+            report["ledger_served"] = local_served
+            report["ledger_probe_did"] = probe_did
 
     if liveness_path is not None:
         local_liveness = _load_local_liveness(liveness_path)

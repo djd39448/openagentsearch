@@ -407,7 +407,7 @@ const SCRIPT_LINES = [
   "  var wrap = byId('did-results');",
   "  clearNode(wrap);",
   "  if (status === 404 && body.error === 'unknown_did') {",
-  "    var scope = CARD && CARD.ledger ? 'not among the ' + fmtNum(CARD.ledger.dids) + ' DIDs in the ledger built ' + CARD.ledger.generated_at + ' from the polled rooms' : 'not in the ledger';",
+  "    var scope = body.served ? 'not among the ' + fmtNum(body.served.dids) + ' DIDs served here (those last seen since ' + fmtAbs(body.served.last_seen_min_ts * 1000) + '); the full ledger, did-ledger.jsonl on GitHub Pages, holds all ' + (CARD && CARD.ledger ? fmtNum(CARD.ledger.dids) + ' ' : '') + 'DIDs' : CARD && CARD.ledger ? 'not among the ' + fmtNum(CARD.ledger.dids) + ' DIDs in the ledger built ' + CARD.ledger.generated_at + ' from the polled rooms' : 'not in the ledger';",
   "    wrap.appendChild(mkText('p', 'unknown_did — well-formed DID, ' + scope + ' — absence is not evidence', 'status'));",
   "    return;",
   "  }",
@@ -1066,4 +1066,4 @@ export const PAGE_HTML =
 // ---------------------------------------------------------------------------------------------
 
 export const PAGE_STYLE_SHA256 = "4RfcEMggLib82F2Hsb3wXowQp2t5QsNbjBTUHslHTyE=";
-export const PAGE_SCRIPT_SHA256 = "t90mlrr5kCKXQ1zUy2QFCnaWtw6iDDVNaI9XSt1fPX0=";
+export const PAGE_SCRIPT_SHA256 = "dJQZJj4LW43Oy2MX5omeQRnKczDJhIol5p9wtmGyBdA=";

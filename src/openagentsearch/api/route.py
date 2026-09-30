@@ -170,16 +170,19 @@ def extract_dids(text: str, limit: int = 5) -> tuple[str, ...]:
     return tuple(found)
 
 
-def _lookup_did_body(ledger_lookup: LookupFn | None, did: str) -> dict[str, object]:
+def _lookup_did_body(
+    ledger_lookup: LookupFn | None, did: str, ledger_miss: dict[str, object] | None = None
+) -> dict[str, object]:
     """The exact `dids[].ledger` value for `did`: `{"error": "ledger_not_built"}` when no ledger
-    was loaded at all, `{"error": "unknown_did"}` when a ledger is loaded but does not know `did`,
-    or the SAME body `/did/{did}` itself answers for a known `did` -- never re-derived, always
-    `ledger_lookup(did)`'s own return value."""
+    was loaded at all, `ledger_miss` (`CompactLedger.miss()`, the same `404` body `/did/{did}`
+    answers; `{"error": "unknown_did"}` when not given) when a ledger is loaded but does not know
+    `did`, or the SAME body `/did/{did}` itself answers for a known `did` -- never re-derived,
+    always `ledger_lookup(did)`'s own return value."""
     if ledger_lookup is None:
         return {"error": "ledger_not_built"}
     answer = ledger_lookup(did)
     if answer is None:
-        return {"error": "unknown_did"}
+        return dict(ledger_miss) if ledger_miss is not None else {"error": "unknown_did"}
     return answer
 
 
@@ -188,6 +191,7 @@ def make_route_route(
     ledger_lookup: LookupFn | None,
     index_generated_at: str,
     ledger_generated_at: str | None,
+    ledger_miss: dict[str, object] | None = None,
 ) -> JSONRoute:
     """Builds the `/route` `JSONRoute` (package D2). `search` and `ledger_lookup` are injected
     (see their own docstrings) -- this function and the route it returns import nothing from
@@ -223,7 +227,7 @@ def make_route_route(
         for hit in hits:
             text = hit["text"]
             dids = [
-                {"did": did, "ledger": _lookup_did_body(ledger_lookup, did)}
+                {"did": did, "ledger": _lookup_did_body(ledger_lookup, did, ledger_miss)}
                 for did in extract_dids(text)
             ]
             observations.append(

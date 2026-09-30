@@ -387,6 +387,45 @@ def test_ledger_match_exits_0(tmp_path: Path) -> None:
     assert report["first_seen_seq"] == 3
 
 
+# Package CT: a size-fitted ledger may not hold OUR_DID; the probe moves to a DID it does hold.
+OTHER_DID = "did:key:z6MkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+SERVED = {"dids": 1, "last_seen_min_ts": 1790000000.5}
+LOCAL_FITTED_LEDGER: dict[str, Any] = {
+    **LOCAL_LEDGER_OK,
+    "non_burst": {OTHER_DID: {"facts": {"first_seen_seq": 7}, "score": {}}},
+    "served": SERVED,
+}
+
+
+def test_fitted_ledger_probes_a_served_did_and_matches_served(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    ledger_path = _write_ledger(tmp_path, LOCAL_FITTED_LEDGER)
+    healthz = {**HEALTHZ_OK, "ledger": {**HEALTHZ_WITH_LEDGER_OK["ledger"], "served": SERVED}}
+    handler = _make_handler(
+        healthz_body=json.dumps(healthz).encode("utf-8"),
+        did_body={**DID_BODY_OK, "did": OTHER_DID, "facts": {"first_seen_seq": 7}},
+    )
+    with _Server(handler) as server:
+        proc = _run(server.base_url, manifest_path, ledger_path=ledger_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    report = json.loads(proc.stdout)
+    assert report["first_seen_seq"] == 7
+    assert report["ledger_probe_did"] == OTHER_DID
+    assert report["ledger_served"] == SERVED
+
+
+def test_fitted_ledger_served_mismatch_exits_1(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path)
+    ledger_path = _write_ledger(tmp_path, LOCAL_FITTED_LEDGER)
+    handler = _make_handler(
+        healthz_body=json.dumps(HEALTHZ_WITH_LEDGER_OK).encode("utf-8"), did_body=DID_BODY_OK
+    )
+    with _Server(handler) as server:
+        proc = _run(server.base_url, manifest_path, ledger_path=ledger_path)
+    assert proc.returncode == 1
+    assert "ledger served mismatch" in json.loads(proc.stdout)["reason"]
+
+
 def test_ledger_did_request_uses_the_literal_unencoded_path(tmp_path: Path) -> None:
     """`_make_handler`'s `startswith("/did/")` stub (used by every other `--ledger` test above)
     matches any `/did/...` path, encoded or not, so it can never catch a wrong URL -- this test

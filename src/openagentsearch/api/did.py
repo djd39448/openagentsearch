@@ -44,7 +44,7 @@ def make_did_prefix_route(
             return 404, {"error": "ledger_not_built"}, extra_headers
         answer = ledger.lookup(did)
         if answer is None:
-            return 404, {"error": "unknown_did"}, extra_headers
+            return 404, ledger.miss(), extra_headers
         return 200, answer, extra_headers
 
     return route

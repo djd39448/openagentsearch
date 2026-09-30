@@ -7,7 +7,8 @@ on-disk layout) and writes it to `--out` (`ledger.to_jsonl_bytes`, atomic). When
 is given, the SAME `Ledger` from this same run is also written as the compact Worker artifact
 (`openagentsearch.reputation.compact.write_compact_ledger`) -- one build, two files, never two
 separate reads of the log. On success, prints one compact JSON report line to stdout and returns
-0 (the report gains a `compact_bytes` key only when `--compact-out` was given). On any failure,
+0 (the report gains a `compact_bytes` key only when `--compact-out` was given, and a
+`compact_served` key only when the compact artifact had to be fitted to `--max-compact-bytes`). On any failure,
 prints one JSON `{"error": "..."}` line to stderr and returns 1; nothing is printed to stdout in
 that case.
 Argument-parsing failures (a missing required flag, a non-numeric `--now`, a `--max-ledger-bytes`/
@@ -21,8 +22,11 @@ that same value as `now` and never reads a clock again, so two invocations a sec
 ONLY in `--now`'s value, never in anything computed from it twice.
 
 `--max-ledger-bytes` / `--max-compact-bytes` default to `ledger.DEFAULT_MAX_BYTES` /
-`compact.DEFAULT_MAX_BYTES` (unchanged behaviour) and are passed straight through to
-`write_ledger`/`write_compact_ledger` as `max_bytes=`. Their purpose is an **evidence build**: a
+`compact.DEFAULT_MAX_BYTES` and are passed straight through to `write_ledger`/
+`write_compact_ledger` as `max_bytes=`. The compact artifact never fails on size while at least one
+DID fits: past the budget it keeps the most recently active DIDs and says so in its `served`
+header (`openagentsearch.reputation.compact`, package CT). Raising either flag is for an
+**evidence build**: a
 one-off run over a log larger than the published-artifact guards, for a measurement that needs the
 full log rather than the operator's published `--room`-scoped subset (see `docs/reputation.md`
 "Publishing", item 1). The default guards protect the Pages/Worker artifacts this command
@@ -37,7 +41,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from openagentsearch.reputation.compact import DEFAULT_MAX_BYTES as COMPACT_DEFAULT_MAX_BYTES
-from openagentsearch.reputation.compact import write_compact_ledger
+from openagentsearch.reputation.compact import write_compact_ledger_served
 from openagentsearch.reputation.ledger import DEFAULT_MAX_BYTES as LEDGER_DEFAULT_MAX_BYTES
 from openagentsearch.reputation.ledger import build_ledger, write_ledger
 
@@ -85,9 +89,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-compact-bytes", type=_positive_int, default=COMPACT_DEFAULT_MAX_BYTES,
         dest="max_compact_bytes",
         help=(
-            "reject --compact-out if the serialized compact artifact exceeds this many bytes "
-            "(default: %(default)s, i.e. unchanged behaviour); same evidence-build purpose as "
-            "--max-ledger-bytes"
+            "byte budget for --compact-out (default: %(default)s): past it the artifact keeps "
+            "the most recently active DIDs and records the cutoff in `served`; fails only when "
+            "not even one DID fits"
         ),
     )
     return parser
@@ -116,10 +120,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         written_bytes = write_ledger(ledger, out_path, max_bytes=args.max_ledger_bytes)
         compact_bytes: int | None = None
+        compact_served: dict[str, object] | None = None
         if args.compact_out is not None:
-            compact_bytes = write_compact_ledger(
+            compact_bytes, served = write_compact_ledger_served(
                 ledger, Path(args.compact_out), max_bytes=args.max_compact_bytes
             )
+            compact_served = None if served is None else served.to_obj()
     except Exception as exc:
         print(
             json.dumps({"error": f"{type(exc).__name__}: {exc}"}, separators=(",", ":")),
@@ -143,6 +149,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
     if compact_bytes is not None:
         result["compact_bytes"] = compact_bytes
+        if compact_served is not None:
+            result["compact_served"] = compact_served
     print(json.dumps(result, ensure_ascii=False, separators=(",", ":")), flush=True)
     return 0
 

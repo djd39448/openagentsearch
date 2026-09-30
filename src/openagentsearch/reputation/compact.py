@@ -10,6 +10,14 @@ majority of DIDs on the live log (49,558 of 53,856 measured 2026-09-16) but a bu
 scores exactly `0.0` (`score.Score`'s own invariant), so their full evidence trail is not worth
 shipping to every Worker request.
 
+The artifact is size-bounded by construction (package CT, 2026-09-30): once the whole ledger no
+longer fits `max_bytes`, `fit_compact_json_bytes()` keeps the most recently active DIDs -- every DID
+whose `last_seen_ts` is at or after a cutoff, none before it -- and records that cutoff in an
+optional `served` header (`{"dids": M, "last_seen_min_ts": T}`); `dids` stays the WHOLE ledger's
+count. The full ledger (`did-ledger.jsonl`, GitHub Pages) still carries every DID. Measured on the
+2026-09-30 log: 32,338 of 44,236 DIDs had posted within 7 days, so a time window alone would not
+bound the size -- only a byte budget does.
+
 `to_compact_json_bytes()` / `load_compact_ledger()` are the write/read halves of one contract, the
 same convention `ledger.py`'s `to_jsonl_bytes()`/`load_ledger()` and `lexical.index`'s
 `to_json_bytes()`/`load_lexical_index()` use: anything the writer produces, the loader reads back
@@ -24,9 +32,10 @@ never an endorsement.
 """
 
 import json
+import math
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -96,6 +105,26 @@ class BurstRecord:
                 raise ValueError(f"{name} must be a non-negative int, got {value!r}")
 
 
+@dataclass(frozen=True)
+class ServedScope:
+    """Present only on a size-fitted artifact (`fit_compact_json_bytes`): it holds `dids` DIDs,
+    exactly those whose `last_seen_ts >= last_seen_min_ts`, out of the ledger's full `dids`."""
+
+    dids: int
+    last_seen_min_ts: float
+
+    def __post_init__(self) -> None:
+        if isinstance(self.dids, bool) or not isinstance(self.dids, int) or self.dids < 1:
+            raise ValueError(f"served.dids must be a positive int, got {self.dids!r}")
+        ts = self.last_seen_min_ts
+        if isinstance(ts, bool) or not isinstance(ts, (int, float)) or not math.isfinite(ts):
+            raise ValueError(f"served.last_seen_min_ts must be a finite number, got {ts!r}")
+        object.__setattr__(self, "last_seen_min_ts", float(self.last_seen_min_ts))
+
+    def to_obj(self) -> dict[str, object]:
+        return {"dids": self.dids, "last_seen_min_ts": self.last_seen_min_ts}
+
+
 def to_compact_json_bytes(ledger: Ledger) -> bytes:
     """`ledger` -> the canonical UTF-8 bytes of its compact Worker artifact: one JSON object,
     `ensure_ascii=False`, sorted keys, compact separators -- byte-deterministic, the same
@@ -110,21 +139,35 @@ def to_compact_json_bytes(ledger: Ledger) -> bytes:
     DID can be a burst member purely by posting RATE, with `burst_id is None` -- see
     `facts.is_burst_member`).
     """
-    non_burst: dict[str, dict[str, Any]] = {}
-    burst: dict[str, list[Any]] = {}
-    for row in ledger.rows:
-        if row.score.burst:
-            burst[row.facts.did] = [
-                row.facts.burst_id,
-                row.facts.first_seen_ts,
-                row.facts.post_count,
-                row.facts.max_posts_per_minute,
-            ]
-        else:
-            non_burst[row.facts.did] = {
-                "facts": facts_to_obj(row.facts),
-                "score": score_to_obj(row.score),
-            }
+    return _dumps(_compact_obj(ledger, ledger.rows, None))
+
+
+def _dumps(obj: object) -> bytes:
+    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+
+
+def _entry(row: LedgerRow) -> tuple[bool, Any]:
+    """`(is_burst, value)`: the value `row` is stored under in `burst` or `non_burst`."""
+    if row.score.burst:
+        return True, [
+            row.facts.burst_id,
+            row.facts.first_seen_ts,
+            row.facts.post_count,
+            row.facts.max_posts_per_minute,
+        ]
+    return False, {"facts": facts_to_obj(row.facts), "score": score_to_obj(row.score)}
+
+
+def _compact_obj(
+    ledger: Ledger, rows: Sequence[LedgerRow], served: "ServedScope | None"
+) -> dict[str, Any]:
+    non_burst: dict[str, Any] = {}
+    burst: dict[str, Any] = {}
+    for row in rows:
+        is_burst, value = _entry(row)
+        (burst if is_burst else non_burst)[row.facts.did] = value
     obj: dict[str, Any] = {
         "schema": SCHEMA_COMPACT,
         "generated_at": ledger.generated_at,
@@ -135,33 +178,103 @@ def to_compact_json_bytes(ledger: Ledger) -> bytes:
         "non_burst": non_burst,
         "burst": burst,
     }
-    return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
+    if served is not None:
+        obj["served"] = served.to_obj()
+    return obj
 
 
 class CompactLedgerSizeError(ValueError):
-    """Raised by `write_compact_ledger()` when the serialized artifact exceeds `max_bytes` --
-    raised BEFORE any file (not even a temp file) is created, the same convention
-    `ledger.LedgerSizeError` uses."""
+    """Raised by `fit_compact_json_bytes()`/`write_compact_ledger()` when not even the single most
+    recently active DID fits in `max_bytes` -- raised BEFORE any file (not even a temp file) is
+    created, the same convention `ledger.LedgerSizeError` uses."""
+
+
+def fit_compact_json_bytes(ledger: Ledger, max_bytes: int = DEFAULT_MAX_BYTES) -> bytes:
+    """The compact artifact for `ledger`, at most `max_bytes` long (see `_fit`)."""
+    return _fit(ledger, max_bytes)[0]
+
+
+def _fit(ledger: Ledger, max_bytes: int) -> tuple[bytes, "ServedScope | None"]:
+    """`(data, served)`: the compact artifact for `ledger`, at most `max_bytes` long, and its
+    `served` scope (`None` when every DID fits).
+
+    When the whole ledger fits, this is exactly `to_compact_json_bytes(ledger)` (no `served` key).
+    Otherwise the DIDs are ranked by `facts.last_seen_ts`, newest first, and the artifact keeps the
+    longest run that fits, cut back to a timestamp boundary so the kept set is EXACTLY "every DID
+    last seen at or after `served.last_seen_min_ts`" -- a tie group at the cutoff is kept whole or
+    dropped whole. The result is deterministic for a given ledger and budget.
+
+    Raises:
+        CompactLedgerSizeError: not even the newest timestamp group fits in `max_bytes`.
+    """
+    full = to_compact_json_bytes(ledger)
+    if len(full) <= max_bytes:
+        return full, None
+    rows = sorted(ledger.rows, key=lambda r: (-r.facts.last_seen_ts, r.facts.did))
+    # Exact size of a prefix without serializing it: `sort_keys` output is the header with both
+    # maps empty, plus each entry's `"did":value` bytes, plus one comma between entries of a map.
+    entry_bytes: list[int] = []
+    is_burst: list[bool] = []
+    for row in rows:
+        burst_entry, value = _entry(row)
+        entry_bytes.append(len(_dumps({row.facts.did: value})) - 2)
+        is_burst.append(burst_entry)
+    prefix_bytes = [0]
+    prefix_burst = [0]
+    for size, burst_entry in zip(entry_bytes, is_burst):
+        prefix_bytes.append(prefix_bytes[-1] + size)
+        prefix_burst.append(prefix_burst[-1] + int(burst_entry))
+
+    def size_of(k: int) -> int:
+        served = ServedScope(dids=k, last_seen_min_ts=rows[k - 1].facts.last_seen_ts)
+        header = len(_dumps(_compact_obj(ledger, (), served)))
+        n_burst = prefix_burst[k]
+        n_non_burst = k - n_burst
+        return header + prefix_bytes[k] + max(n_burst - 1, 0) + max(n_non_burst - 1, 0)
+
+    lo, hi = 0, len(rows)  # invariant: size_of(lo) fits (lo == 0 means "nothing yet")
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if size_of(mid) <= max_bytes:
+            lo = mid
+        else:
+            hi = mid - 1
+    k = lo
+    # Cut back to a timestamp boundary: the kept set must be "every DID at or after the cutoff".
+    while 0 < k < len(rows) and rows[k].facts.last_seen_ts == rows[k - 1].facts.last_seen_ts:
+        k -= 1
+    if k == 0:
+        raise CompactLedgerSizeError(
+            f"compact ledger is {len(full)} bytes and not even the most recently active DID "
+            f"fits in the {max_bytes} byte limit"
+        )
+    served = ServedScope(dids=k, last_seen_min_ts=rows[k - 1].facts.last_seen_ts)
+    data = _dumps(_compact_obj(ledger, rows[:k], served))
+    if len(data) > max_bytes:  # size_of() is exact; this guards the arithmetic, not the data
+        raise AssertionError(f"fitted compact ledger is {len(data)} bytes > {max_bytes}")
+    return data, served
 
 
 def write_compact_ledger(
     ledger: Ledger, out_path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES
 ) -> int:
-    """Serialize `ledger`'s compact artifact (`to_compact_json_bytes`) and write it to `out_path`
-    atomically (temp file in the same directory, then `os.replace`), returning the byte count
-    written.
+    """Serialize `ledger`'s compact artifact, fitted to `max_bytes` (`fit_compact_json_bytes`), and
+    write it to `out_path` atomically (temp file in the same directory, then `os.replace`),
+    returning the byte count written.
 
     Raises:
-        CompactLedgerSizeError: the serialized bytes exceed `max_bytes`. Checked BEFORE any write,
+        CompactLedgerSizeError: not even one DID fits in `max_bytes`. Checked BEFORE any write,
             so a refusal leaves `out_path`'s directory exactly as it was found.
     """
-    data = to_compact_json_bytes(ledger)
-    if len(data) > max_bytes:
-        raise CompactLedgerSizeError(
-            f"compact ledger is {len(data)} bytes, over the {max_bytes} byte limit"
-        )
+    return write_compact_ledger_served(ledger, out_path, max_bytes=max_bytes)[0]
+
+
+def write_compact_ledger_served(
+    ledger: Ledger, out_path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES
+) -> tuple[int, ServedScope | None]:
+    """`write_compact_ledger`, also returning the artifact's `served` scope (`None` when every
+    DID fit) so a caller can report it without re-reading the file."""
+    data, served = _fit(ledger, max_bytes)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
@@ -175,7 +288,7 @@ def write_compact_ledger(
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
-    return len(data)
+    return len(data), served
 
 
 @dataclass(frozen=True)
@@ -197,6 +310,7 @@ class CompactLedger:
     bursts: int
     non_burst: Mapping[str, LedgerRow]
     burst: Mapping[str, BurstRecord]
+    served: ServedScope | None = None
 
     def __post_init__(self) -> None:
         if self.schema != SCHEMA_COMPACT:
@@ -227,11 +341,31 @@ class CompactLedger:
                     f"facts.did={row.facts.did!r} score.did={row.score.did!r}"
                 )
         total = len(self.non_burst) + len(self.burst)
-        if total != self.dids:
-            raise ValueError(f"dids ({self.dids}) does not match non_burst+burst count ({total})")
+        if self.served is None:
+            if total != self.dids:
+                raise ValueError(
+                    f"dids ({self.dids}) does not match non_burst+burst count ({total})"
+                )
+        else:
+            if total != self.served.dids:
+                raise ValueError(
+                    f"served.dids ({self.served.dids}) does not match non_burst+burst count "
+                    f"({total})"
+                )
+            if self.served.dids >= self.dids:
+                raise ValueError(
+                    f"served.dids ({self.served.dids}) must be below dids ({self.dids}); an "
+                    f"artifact holding every DID carries no served scope"
+                )
+            for did, row in self.non_burst.items():
+                if row.facts.last_seen_ts < self.served.last_seen_min_ts:
+                    raise ValueError(
+                        f"non_burst[{did!r}] last_seen_ts {row.facts.last_seen_ts!r} is before "
+                        f"served.last_seen_min_ts {self.served.last_seen_min_ts!r}"
+                    )
 
     def _provenance(self) -> dict[str, object]:
-        return {
+        provenance: dict[str, object] = {
             "ledger_generated_at": self.generated_at,
             "log_rows": self.log_rows,
             "posts": self.posts,
@@ -239,6 +373,18 @@ class CompactLedger:
             "bursts": self.bursts,
             "schema": self.schema,
         }
+        if self.served is not None:
+            provenance["served"] = self.served.to_obj()
+        return provenance
+
+    def miss(self) -> DidAnswer:
+        """The `404` body for a well-formed DID `lookup()` does not know: `{"error":
+        "unknown_did"}`, plus the `served` scope when this artifact holds only the most recently
+        active DIDs -- so a caller can tell "never posted in the polled rooms" from "last seen
+        before the cutoff; see the full ledger"."""
+        if self.served is None:
+            return {"error": "unknown_did"}
+        return {"error": "unknown_did", "served": self.served.to_obj()}
 
     def lookup(self, did: str) -> DidAnswer | None:
         """The `/did/{did}` response body for `did` (`docs/api.md`'s `GET /did/{did}` contract,
@@ -325,8 +471,10 @@ def load_compact_ledger(path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> Co
     a partially-built `CompactLedger`, for: a file over `max_bytes`; invalid UTF-8; a body that is
     not valid JSON or not an object; a `schema` other than `SCHEMA_COMPACT`; a malformed
     `non_burst`/`burst` entry; a `did` key that disagrees with its own `facts.did`/`score.did`; a
-    `did` present in BOTH maps; or a header `dids` count that disagrees with `len(non_burst) +
-    len(burst)`.
+    `did` present in BOTH maps; a header `dids` count that disagrees with `len(non_burst) +
+    len(burst)` (or, on a size-fitted artifact, a malformed `served`, a `served.dids` that
+    disagrees with that count or is not below `dids`, or a `non_burst` row last seen before
+    `served.last_seen_min_ts`).
 
     NOT guaranteed: this does not re-run `score.score_did` to confirm a stored `Score` is still
     what the formula would produce today -- the same caveat `ledger.load_ledger` documents.
@@ -384,6 +532,18 @@ def load_compact_ledger(path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> Co
             raise _fail(f"burst key must be a non-empty string, got {did!r}")
         burst[did] = _obj_to_burst_record(record_obj, did)
 
+    served: ServedScope | None = None
+    if "served" in obj:
+        served_raw = obj["served"]
+        if not isinstance(served_raw, dict) or set(served_raw) != {"dids", "last_seen_min_ts"}:
+            raise _fail(f"served must be {{dids, last_seen_min_ts}}, got {served_raw!r}")
+        served = ServedScope(
+            dids=_require_int(served_raw["dids"], "served.dids"),
+            last_seen_min_ts=_require_number(
+                served_raw["last_seen_min_ts"], "served.last_seen_min_ts"
+            ),
+        )
+
     return CompactLedger(
         schema=schema,
         generated_at=generated_at,
@@ -393,4 +553,5 @@ def load_compact_ledger(path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> Co
         bursts=bursts,
         non_burst=non_burst,
         burst=burst,
+        served=served,
     )

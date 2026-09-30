@@ -5,6 +5,18 @@ package publication, or hosted release exists.
 
 ## Unreleased
 
+### Changed
+
+- The compact Worker ledger (`did-ledger-compact.json`) is size-bounded by construction (package
+  CT). Past its byte budget (`--max-compact-bytes`, default 32 MiB) it keeps exactly the DIDs last
+  seen at or after a cutoff and records it as `"served": {"dids", "last_seen_min_ts"}`; `dids`
+  stays the whole ledger's count, and an artifact that fits whole is byte-identical to before.
+  `/healthz`'s `ledger`, `/did` provenance and the `404 unknown_did` body carry `served` (Worker,
+  A2 server, `/route`'s `dids[].ledger`, the inspector's DID panel); `scripts/verify_public.py`
+  probes a served DID and compares `served`. Fixes the daily refresh's stale-ledger exit since
+  2026-09-29 (compact 36.2 MB over the 32 MiB guard). See
+  [docs/reputation.md](./docs/reputation.md#the-compact-artifact-openagentsearchreputationcompact-package-b2).
+
 ### Added
 
 - `scripts/freeze_message_log.py` (package SN): `freeze`/`verify`/`extract` for the technocore.chat

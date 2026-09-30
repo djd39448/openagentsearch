@@ -218,6 +218,19 @@ curl https://flopsearch.com/did/did:key:z6MkNeverPostedExample00
 {"error": "unknown_did"}
 ```
 
+**Size-fitted ledger (package CT).** The Worker bundles a compact ledger with a fixed byte budget
+(32 MiB). Once the whole ledger outgrows it, the compact copy keeps only the most recently active
+DIDs -- exactly those last seen at or after a cutoff -- and says so: `/healthz`'s `ledger`, every
+`200` body's `provenance`, and the `404 unknown_did` body all carry `"served": {"dids": M,
+"last_seen_min_ts": T}` (epoch seconds), while `dids` stays the WHOLE ledger's count. A DID absent
+from a size-fitted ledger may simply have been last seen before `T`; the full ledger
+(`did-ledger.jsonl` on the static index, see below) holds every DID. Without `served`, the ledger
+is whole and an absent DID never posted in a polled room.
+
+```json
+{"error": "unknown_did", "served": {"dids": 44810, "last_seen_min_ts": 1789698799.906733}}
+```
+
 **No ledger loaded at all — `404 {"error": "ledger_not_built"}`** (a Worker built without the
 artifact, or the A2 server started without `--ledger`) — this is the ONLY case where
 `X-Ledger-Generated-At` is absent from the response; every other outcome above (`200`, `400`,
@@ -488,7 +501,7 @@ overview; `room`/`did` each run their own single-item lookup instead).
 | 400 | `invalid_precision` | `/route` | `precision` is present but not 1-32 characters of the same alphabet as `model_hash` |
 | 400 | `invalid_max_latency_ms` | `/route` | `max_latency_ms` is present but not an integer `1..600000` written in ASCII digits |
 | 400 | `invalid_room` | `/liveness/room/{room}` | `room` does not match `^[A-Za-z0-9._-]{1,128}$` |
-| 404 | `unknown_did` | `/did/{did}` | `did` is well-formed and a ledger is loaded, but that DID never posted a signed message in a logged room |
+| 404 | `unknown_did` | `/did/{did}` | `did` is well-formed and a ledger is loaded, but that DID never posted a signed message in a logged room -- or, when the body carries `served`, was last seen before `served.last_seen_min_ts` (the full ledger on the static index has it) |
 | 404 | `ledger_not_built` | `/did/{did}` | `did` is well-formed, but NO ledger is loaded at all (no compact artifact bundled, or the A2 server started without `--ledger`) |
 | 404 | `unknown_room` | `/liveness/room/{room}` | `room` is well-formed and a liveness map is loaded, but that room has no entry in it |
 | 404 | `unknown_agent` | `/liveness/agent/{did}` | `did` is well-formed and a liveness map is loaded, but that DID has no entry in it |

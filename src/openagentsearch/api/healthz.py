@@ -17,7 +17,14 @@ from openagentsearch.vector.store import VectorStore
 def _ledger_summary(ledger: CompactLedger | None) -> dict[str, object] | None:
     if ledger is None:
         return None
-    return {"dids": ledger.dids, "bursts": ledger.bursts, "generated_at": ledger.generated_at}
+    summary: dict[str, object] = {
+        "dids": ledger.dids,
+        "bursts": ledger.bursts,
+        "generated_at": ledger.generated_at,
+    }
+    if ledger.served is not None:
+        summary["served"] = ledger.served.to_obj()
+    return summary
 
 
 def make_healthz_route(store: VectorStore, ledger: CompactLedger | None = None) -> JSONRoute:

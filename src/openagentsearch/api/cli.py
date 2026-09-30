@@ -205,7 +205,8 @@ def build_server(args: argparse.Namespace) -> tuple[ThreadingHTTPServer, VectorS
             "/healthz": make_healthz_route(store, ledger),
             "/search": make_search_route(store, embedder, resolve_doc_url),
             "/route": make_route_route(
-                observation_search, ledger_lookup, _now_iso(), ledger_generated_at
+                observation_search, ledger_lookup, _now_iso(), ledger_generated_at,
+                None if ledger is None else ledger.miss(),
             ),
         }
         # `/did/` is always mounted (like the Worker's `makeWorker(index, ledger = null)`): a
