@@ -252,6 +252,22 @@ test("a known agent answers 200 with every signal mapped by position, did_note_p
   assert.equal(typeof body.signals.did_note_present, "boolean");
 });
 
+test("package LW: a windowed, size-fitted map says what it lists in the overview and on a miss", async () => {
+  const served = { agents: Object.keys(LIVENESS.agents).length, last_seen_min_ts: 1789600000.5 };
+  const scoped = { ...LIVENESS, agents_outside_window: 42, served };
+  const worker = makeWorker(INDEX, LEDGER, OFFER_SHAPE, scoped);
+  const miss = await worker.fetch(req(`/liveness/agent/${UNKNOWN_DID}`), ALWAYS_ALLOW);
+  assert.equal(miss.status, 404);
+  assert.deepEqual(await miss.json(), {
+    error: "unknown_agent", window_days: LIVENESS.window_days, agents_outside_window: 42, served,
+  });
+  const overview = await (await worker.fetch(req("/liveness"), ALWAYS_ALLOW)).json();
+  assert.equal(overview.agents_outside_window, 42);
+  assert.deepEqual(overview.served, served);
+  const plain = await (await makeLiveWorker().fetch(req("/liveness"), ALWAYS_ALLOW)).json();
+  assert.equal("agents_outside_window" in plain || "served" in plain, false);
+});
+
 test("a well-formed but absent DID answers 404 unknown_agent", async () => {
   const worker = makeLiveWorker();
   const res = await worker.fetch(req(`/liveness/agent/${UNKNOWN_DID}`), ALWAYS_ALLOW);

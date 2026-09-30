@@ -15,7 +15,9 @@ a baseline the classifier never reads.
 """
 
 import argparse
+import dataclasses
 import json
+import math
 import os
 import sys
 import tempfile
@@ -364,8 +366,15 @@ class LivenessMap:
     rooms: Mapping[str, RoomEntry]
     agents: Mapping[str, AgentEntry]
     candidates: tuple[Any, ...]
+    # Package LW (2026-09-30): `agents` lists only DIDs seen in the window; this many ledger DIDs
+    # were left out because their last post is older than the window (serialized only when > 0).
+    agents_outside_window: int = 0
+    # Set only on a size-fitted artifact (`fit_liveness`): {"agents": M, "last_seen_min_ts": T},
+    # the M agents kept are exactly those last seen at or after T.
+    served: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
+        _check_window_fields(self.agents_outside_window, self.served, len(self.agents))
         if self.schema != SCHEMA:
             raise ValueError(f"schema must be {SCHEMA!r}, got {self.schema!r}")
         if not isinstance(self.generated_at, str) or not self.generated_at:
@@ -402,6 +411,32 @@ class LivenessMap:
         for entry in self.candidates:
             if not isinstance(entry, dict) or not isinstance(entry.get("room"), str):
                 raise ValueError(f"each candidate must be an object with a string room, got {entry!r}")
+
+
+def _check_window_fields(outside: object, served: object, n_agents: int) -> None:
+    """Shared validation of the package LW header fields for both map shapes."""
+    if isinstance(outside, bool) or not isinstance(outside, int) or outside < 0:
+        raise ValueError(f"agents_outside_window must be a non-negative int, got {outside!r}")
+    if served is None:
+        return
+    if not isinstance(served, Mapping) or set(served) != {"agents", "last_seen_min_ts"}:
+        raise ValueError(f"served must be {{agents, last_seen_min_ts}}, got {served!r}")
+    kept, ts = served["agents"], served["last_seen_min_ts"]
+    if isinstance(kept, bool) or not isinstance(kept, int) or kept < 1 or kept != n_agents:
+        raise ValueError(f"served.agents must equal the number of agents listed ({n_agents}), got {kept!r}")
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)) or not math.isfinite(ts):
+        raise ValueError(f"served.last_seen_min_ts must be a finite number, got {ts!r}")
+
+
+def _window_header(outside: int, served: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The optional package LW keys, added to both artifacts only when they carry information, so
+    a map with nothing outside the window and no fitting is byte-identical to before."""
+    header: dict[str, Any] = {}
+    if outside:
+        header["agents_outside_window"] = outside
+    if served is not None:
+        header["served"] = {"agents": served["agents"], "last_seen_min_ts": float(served["last_seen_min_ts"])}
+    return header
 
 
 def _counts_obj(rooms: Mapping[str, RoomEntry], agents: Mapping[str, AgentEntry]) -> dict[str, Any]:
@@ -465,10 +500,16 @@ def build_liveness(
     signals_by_did, agents_not_in_ledger = agent_signals(
         rows_by_room, ledger=ledger, room_classes=room_classes, now=now
     )
+    # Package LW: the map lists only agents seen in its own window. Everyone else is counted in
+    # agents_outside_window (the full ledger still has them); without this the file grew with
+    # all-time history and passed its 32 MiB guard on 2026-09-30 (49,040 agents, 15,246 of them
+    # not seen in 7 days).
     agent_entries = {
         did: AgentEntry(verdict=classify_agent(sig), signals=sig)
         for did, sig in signals_by_did.items()
+        if sig.last_seen_ts >= cutoff
     }
+    agents_outside_window = len(signals_by_did) - len(agent_entries)
 
     candidates: tuple[dict[str, Any], ...] = ()
     if rooms_jsonl is not None:
@@ -489,6 +530,7 @@ def build_liveness(
         rooms=room_entries,
         agents=agent_entries,
         candidates=candidates,
+        agents_outside_window=agents_outside_window,
     )
 
 
@@ -526,6 +568,7 @@ def to_json_bytes(m: LivenessMap) -> bytes:
         "agents": agents_obj,
         "counts": _counts_obj(m.rooms, m.agents),
         "candidates": list(m.candidates),
+        **_window_header(m.agents_outside_window, m.served),
     }
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
@@ -549,6 +592,7 @@ def to_compact_json_bytes(m: LivenessMap) -> bytes:
         "rooms": rooms_obj,
         "counts": _counts_obj(m.rooms, m.agents),
         "agents": agents_obj,
+        **_window_header(m.agents_outside_window, m.served),
     }
     return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
@@ -580,33 +624,79 @@ def _write_atomic(data: bytes, out_path: Path) -> int:
     return len(data)
 
 
-def write_liveness(m: LivenessMap, out_path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> int:
-    """Serialize `m` (`to_json_bytes`) and write it to `out_path` atomically (temp file in the
-    same directory, then `os.replace`), returning the byte count written.
+def fit_liveness(
+    m: LivenessMap, max_bytes: int, *, compact: bool = False
+) -> tuple[bytes, LivenessMap]:
+    """`(data, fitted)`: `m` serialized (full, or compact when `compact`) at most `max_bytes` long.
+
+    Package LW's backstop behind the window filter: when `m` fits, `data` is exactly
+    `to_json_bytes(m)`/`to_compact_json_bytes(m)` and `fitted is m`. Otherwise the agents are
+    ranked by `last_seen_ts`, newest first, the longest run that fits is kept (binary search over
+    real serializations; this only runs when the budget is hit), cut back to a timestamp boundary,
+    and `fitted.served` records `{"agents": M, "last_seen_min_ts": T}`; `counts` then describes
+    the kept agents, as the loaders require. Rooms are never dropped.
 
     Raises:
-        LivenessSizeError: the serialized bytes exceed `max_bytes`. Checked BEFORE any write.
+        LivenessSizeError / CompactLivenessSizeError: not even the newest agents fit.
     """
-    data = to_json_bytes(m)
-    if len(data) > max_bytes:
-        raise LivenessSizeError(f"liveness map is {len(data)} bytes, over the {max_bytes} byte limit")
+    to_bytes = to_compact_json_bytes if compact else to_json_bytes
+    err = CompactLivenessSizeError if compact else LivenessSizeError
+    label = "compact liveness map" if compact else "liveness map"
+    data = to_bytes(m)
+    if len(data) <= max_bytes:
+        return data, m
+    full_size = len(data)
+    ranked = sorted(m.agents.items(), key=lambda kv: (-kv[1].signals.last_seen_ts, kv[0]))
+
+    def keep(k: int) -> LivenessMap:
+        served = {"agents": k, "last_seen_min_ts": ranked[k - 1][1].signals.last_seen_ts}
+        return dataclasses.replace(m, agents=dict(ranked[:k]), served=served)
+
+    def boundary(k: int) -> int:
+        while 0 < k < len(ranked) and ranked[k][1].signals.last_seen_ts == ranked[k - 1][1].signals.last_seen_ts:
+            k -= 1
+        return k
+
+    lo, hi = 0, len(ranked)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if len(to_bytes(keep(mid))) <= max_bytes:
+            lo = mid
+        else:
+            hi = mid - 1
+    k = boundary(lo)
+    while k > 0:
+        fitted = keep(k)
+        data = to_bytes(fitted)
+        if len(data) <= max_bytes:
+            return data, fitted
+        k = boundary(k - 1)
+    raise err(f"{label} is {full_size} bytes and not even its most recently active agents fit in "
+              f"the {max_bytes} byte limit")
+
+
+def write_liveness(m: LivenessMap, out_path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> int:
+    """Serialize `m`, fitted to `max_bytes` (`fit_liveness`), and write it to `out_path`
+    atomically (temp file in the same directory, then `os.replace`), returning the byte count
+    written.
+
+    Raises:
+        LivenessSizeError: not even one agent fits in `max_bytes`. Checked BEFORE any write.
+    """
+    data, _fitted = fit_liveness(m, max_bytes)
     return _write_atomic(data, Path(out_path))
 
 
 def write_compact_liveness(
     m: LivenessMap, out_path: Path, *, max_bytes: int = DEFAULT_MAX_COMPACT_BYTES
 ) -> int:
-    """Serialize `m`'s compact artifact (`to_compact_json_bytes`) and write it to `out_path`
-    atomically, returning the byte count written.
+    """Serialize `m`'s compact artifact, fitted to `max_bytes` (`fit_liveness(compact=True)`),
+    and write it to `out_path` atomically, returning the byte count written.
 
     Raises:
-        CompactLivenessSizeError: the serialized bytes exceed `max_bytes`. Checked BEFORE any write.
+        CompactLivenessSizeError: not even one agent fits in `max_bytes`. Checked BEFORE any write.
     """
-    data = to_compact_json_bytes(m)
-    if len(data) > max_bytes:
-        raise CompactLivenessSizeError(
-            f"compact liveness map is {len(data)} bytes, over the {max_bytes} byte limit"
-        )
+    data, _fitted = fit_liveness(m, max_bytes, compact=True)
     return _write_atomic(data, Path(out_path))
 
 
@@ -894,6 +984,13 @@ def load_liveness(path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> Liveness
         if not isinstance(entry, dict) or not isinstance(entry.get("room"), str):
             raise _fail(f"candidates entry must be an object with a string room, got {entry!r}")
 
+    outside, served = _load_window_fields(obj, len(agents))
+    if served is not None:
+        cut = served["last_seen_min_ts"]
+        for did, entry in agents.items():
+            if entry.signals.last_seen_ts < cut:
+                raise _fail(f"agents[{did!r}] last_seen_ts is before served.last_seen_min_ts")
+
     return LivenessMap(
         schema=schema,
         generated_at=generated_at,
@@ -909,7 +1006,22 @@ def load_liveness(path: Path, *, max_bytes: int = DEFAULT_MAX_BYTES) -> Liveness
         rooms=rooms,
         agents=agents,
         candidates=tuple(candidates_raw),
+        agents_outside_window=outside,
+        served=served,
     )
+
+
+def _load_window_fields(obj: Mapping[str, Any], n_agents: int) -> tuple[int, dict[str, Any] | None]:
+    """The optional package LW header fields, validated (absent means 0 / not fitted)."""
+    outside = obj.get("agents_outside_window", 0)
+    served = obj.get("served")
+    if "agents_outside_window" in obj and outside == 0:
+        raise _fail("agents_outside_window is written only when > 0")
+    try:
+        _check_window_fields(outside, served, n_agents)
+    except ValueError as exc:
+        raise _fail(str(exc)) from exc
+    return outside, (dict(served) if served is not None else None)
 
 
 _AGENT_TIERS = frozenset({"unknown", "farm", "weak", "likely_live", "live"})
@@ -975,8 +1087,11 @@ class CompactLivenessMap:
     method: Mapping[str, Any]
     rooms: Mapping[str, RoomEntry]
     agents: Mapping[str, CompactAgentEntry]
+    agents_outside_window: int = 0   # package LW, see LivenessMap
+    served: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
+        _check_window_fields(self.agents_outside_window, self.served, len(self.agents))
         if self.schema != SCHEMA_COMPACT:
             raise ValueError(f"schema must be {SCHEMA_COMPACT!r}, got {self.schema!r}")
         if not isinstance(self.generated_at, str) or not self.generated_at:
@@ -1117,6 +1232,7 @@ def load_compact_liveness(
     if counts_raw != _counts_obj_compact(rooms, agents):
         raise _fail("counts disagrees with the actual rooms/agents maps")
 
+    outside, served = _load_window_fields(obj, len(agents))
     return CompactLivenessMap(
         schema=schema,
         generated_at=generated_at,
@@ -1126,6 +1242,8 @@ def load_compact_liveness(
         method=method,
         rooms=rooms,
         agents=agents,
+        agents_outside_window=outside,
+        served=served,
     )
 
 
@@ -1291,12 +1409,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             rooms=tuple(args.rooms) if args.rooms is not None else None,
             rooms_jsonl=Path(args.rooms_jsonl) if args.rooms_jsonl is not None else None,
         )
-        written_bytes = write_liveness(liveness, out_path, max_bytes=args.max_bytes)
+        data, fitted = fit_liveness(liveness, args.max_bytes)
+        written_bytes = _write_atomic(data, out_path)
         compact_bytes: int | None = None
+        compact_fitted: LivenessMap | None = None
         if args.compact_out is not None:
-            compact_bytes = write_compact_liveness(
-                liveness, Path(args.compact_out), max_bytes=args.max_compact_bytes
+            compact_data, compact_fitted = fit_liveness(
+                liveness, args.max_compact_bytes, compact=True
             )
+            compact_bytes = _write_atomic(compact_data, Path(args.compact_out))
         comparison: dict[str, Any] | None = None
         if args.compare is not None:
             baseline_raw: Any = json.loads(Path(args.compare).read_text(encoding="utf-8"))
@@ -1317,15 +1438,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         "log_rows": liveness.log_rows,
         "signed_rows": liveness.signed_rows,
         "rooms": liveness.rooms_read,
-        "agents": len(liveness.agents),
+        "agents": len(fitted.agents),
+        "agents_outside_window": liveness.agents_outside_window,
         "agents_not_in_ledger": liveness.agents_not_in_ledger,
         "candidates": len(liveness.candidates),
-        "rooms_by_class": _counts_obj(liveness.rooms, liveness.agents)["rooms_by_class"],
-        "agents_by_tier": _counts_obj(liveness.rooms, liveness.agents)["agents_by_tier"],
+        "rooms_by_class": _counts_obj(fitted.rooms, fitted.agents)["rooms_by_class"],
+        "agents_by_tier": _counts_obj(fitted.rooms, fitted.agents)["agents_by_tier"],
         "seconds": time.perf_counter() - started,
     }
+    if fitted.served is not None:
+        result["served"] = dict(fitted.served)
     if compact_bytes is not None:
         result["compact_bytes"] = compact_bytes
+        if compact_fitted is not None and compact_fitted.served is not None:
+            result["compact_served"] = dict(compact_fitted.served)
     if comparison is not None:
         result["compare"] = comparison
     print(json.dumps(result, ensure_ascii=False, separators=(",", ":")), flush=True)

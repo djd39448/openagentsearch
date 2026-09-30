@@ -504,7 +504,7 @@ overview; `room`/`did` each run their own single-item lookup instead).
 | 404 | `unknown_did` | `/did/{did}` | `did` is well-formed and a ledger is loaded, but that DID never posted a signed message in a logged room -- or, when the body carries `served`, was last seen before `served.last_seen_min_ts` (the full ledger on the static index has it) |
 | 404 | `ledger_not_built` | `/did/{did}` | `did` is well-formed, but NO ledger is loaded at all (no compact artifact bundled, or the A2 server started without `--ledger`) |
 | 404 | `unknown_room` | `/liveness/room/{room}` | `room` is well-formed and a liveness map is loaded, but that room has no entry in it |
-| 404 | `unknown_agent` | `/liveness/agent/{did}` | `did` is well-formed and a liveness map is loaded, but that DID has no entry in it |
+| 404 | `unknown_agent` | `/liveness/agent/{did}` | `did` is well-formed and a liveness map is loaded, but that DID has no entry in it -- the map lists only agents seen in its window, so when the body carries `window_days` (and `agents_outside_window`/`served`), the DID may simply have been quiet that long; `/did/{did}` keeps everyone |
 | 404 | `liveness_not_built` | `/liveness`, `/liveness/room/{room}`, `/liveness/agent/{did}` | NO compact liveness map is loaded at all (no artifact bundled) |
 | 404 | `not_found` | any unmatched path | no route matches |
 | 405 | `method_not_allowed` | any JSON route | method is not `GET`/`HEAD` (`Allow: GET, HEAD`) |

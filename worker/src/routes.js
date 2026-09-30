@@ -540,7 +540,7 @@ export function lookupDid(ledger, did) {
  * @returns {object}
  */
 export function buildLivenessOverviewBody(liveness) {
-  return {
+  const body = {
     schema: liveness.schema,
     generated_at: liveness.generated_at,
     window_days: liveness.window_days,
@@ -550,6 +550,27 @@ export function buildLivenessOverviewBody(liveness) {
     method: liveness.method,
     rooms: liveness.rooms,
   };
+  // Package LW: present only when the map carries them (see docs/liveness.md "The artifacts").
+  Object.assign(body, livenessScope(liveness));
+  return body;
+}
+
+/**
+ * The optional package LW fields of a compact liveness map: `agents_outside_window` (ledger DIDs
+ * not listed because their last post is older than the window) and `served` (a size-fitted map
+ * keeps only agents last seen at or after `served.last_seen_min_ts`). Empty for a map that has
+ * neither, so older answers stay byte-identical.
+ *
+ * @param {object} liveness a parsed `liveness-compact.json` document
+ * @returns {object}
+ */
+function livenessScope(liveness) {
+  const scope = {};
+  if (liveness.agents_outside_window != null) scope.agents_outside_window = liveness.agents_outside_window;
+  if (liveness.served != null) {
+    scope.served = { agents: liveness.served.agents, last_seen_min_ts: liveness.served.last_seen_min_ts };
+  }
+  return scope;
 }
 
 /**
@@ -620,7 +641,13 @@ export function lookupLivenessRoom(liveness, room) {
 export function lookupLivenessAgent(liveness, did) {
   const arr = liveness.agents[did];
   if (arr === undefined) {
-    return { status: 404, body: { error: "unknown_agent" } };
+    const scope = livenessScope(liveness);
+    // Package LW: the map lists only agents seen in its window, so a miss may just mean "quiet
+    // for window_days"; the reputation ledger (/did/{did}) keeps everyone.
+    const body = Object.keys(scope).length === 0
+      ? { error: "unknown_agent" }
+      : { error: "unknown_agent", window_days: liveness.window_days, ...scope };
+    return { status: 404, body };
   }
   const [
     tier,

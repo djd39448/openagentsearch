@@ -7,6 +7,14 @@ package publication, or hosted release exists.
 
 ### Changed
 
+- The liveness map lists only agents seen in its own window (package LW); other ledger DIDs are
+  counted in `agents_outside_window` and stay in the reputation ledger. Both liveness artifacts
+  are size-bounded by `fit_liveness` (most recently active agents kept past the budget, recorded
+  as `served`); a map that fits is byte-identical to before. The Worker's `/liveness` overview
+  passes both fields through, and `unknown_agent` then carries `window_days`. Fixes the
+  2026-09-30 refresh's stale map (33,562,319 bytes over the 32 MiB guard). See
+  [docs/liveness.md](./docs/liveness.md#the-artifacts).
+
 - The compact Worker ledger (`did-ledger-compact.json`) is size-bounded by construction (package
   CT). Past its byte budget (`--max-compact-bytes`, default 32 MiB) it keeps exactly the DIDs last
   seen at or after a cutoff and records it as `"served": {"dids", "last_seen_min_ts"}`; `dids`

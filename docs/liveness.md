@@ -229,11 +229,26 @@ did_note_present(0/1), post_count, unsigned_rows, distinct_text_ratio, age_days]
 can recompute the tier and put a number beside every marker) plus `unsigned_rows`;
 `load_compact_liveness` refuses any other length.
 
-Both `write_liveness`/`write_compact_liveness` are atomic (temp file + `os.replace`) and refuse an
-oversize artifact BEFORE creating any file (`DEFAULT_MAX_BYTES` = 32 MiB,
-`DEFAULT_MAX_COMPACT_BYTES` = 8 MiB). Both loaders (`load_liveness`/`load_compact_liveness`) are
+**Window scope and size bound (package LW, 2026-09-30).** `agents` lists only DIDs whose last
+signed post in the scoped rooms is inside the map's own window (`last_seen_ts >= now -
+window_days`); every other ledger DID is counted in the optional header key
+`"agents_outside_window": N` (written only when N > 0) and is still in the reputation ledger
+(`/did/{did}`). Before this the map listed every DID ever seen, grew with all-time history, and
+passed its 32 MiB guard on 2026-09-30 (49,040 agents, 15,246 of them not seen in 7 days; the
+window alone brings that build to about 22.9 MB). Behind the window, both artifacts are
+size-bounded by `fit_liveness(m, max_bytes, compact=...)`: when an artifact fits it is
+byte-identical to before; past the budget the agents are ranked by `last_seen_ts`, newest first,
+the longest run that fits is kept, cut back to a timestamp boundary, and the header gains
+`"served": {"agents": M, "last_seen_min_ts": T}` (exactly the agents last seen at or after T;
+`counts` then describes the kept agents). Rooms are never dropped.
+
+Both `write_liveness`/`write_compact_liveness` are atomic (temp file + `os.replace`) and write the
+fitted artifact (`DEFAULT_MAX_BYTES` = 32 MiB, `DEFAULT_MAX_COMPACT_BYTES` = 8 MiB), refusing
+BEFORE creating any file only when not even the newest agents fit. Both loaders (`load_liveness`/`load_compact_liveness`) are
 fail-closed: wrong schema, oversize, non-object, missing/mistyped fields, a `class`/`tier` outside
-its vocabulary, or `counts` disagreeing with the actual `rooms`/`agents` maps all raise `ValueError`
+its vocabulary, `counts` disagreeing with the actual `rooms`/`agents` maps, or an inconsistent
+`agents_outside_window`/`served` (a `served.agents` that is not the number listed, or an agent last
+seen before `served.last_seen_min_ts`) all raise `ValueError`
 naming the first problem, never a partially-built result.
 
 ## The CLI

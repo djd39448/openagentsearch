@@ -334,7 +334,7 @@ def test_cli_writes_liveness_and_prints_a_report_line(tmp_path):
     payload = json.loads(lines[0])
     assert set(payload.keys()) == {
         "path", "bytes", "log_rows", "signed_rows", "rooms", "agents", "agents_not_in_ledger",
-        "candidates", "rooms_by_class", "agents_by_tier", "seconds",
+        "agents_outside_window", "candidates", "rooms_by_class", "agents_by_tier", "seconds",
     }
     assert out.is_file()
     assert out.stat().st_size == payload["bytes"]
