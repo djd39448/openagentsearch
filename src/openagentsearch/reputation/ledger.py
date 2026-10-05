@@ -33,7 +33,11 @@ from openagentsearch.reputation.notes import load_did_notes
 from openagentsearch.reputation.score import Score, rank
 
 SCHEMA = "openagentsearch.did-ledger/1"
-DEFAULT_MAX_BYTES = 64 * 1024 * 1024
+# A sanity bound on the operator's LOCAL working file, not a publishing guard: since package LS
+# (2026-10-05) the published copy is the sharded did-ledger/ directory (reputation.shards), whose
+# per-shard limit protects Pages. The old 64 MiB default would have stopped the daily build within
+# a week (47.7 MB on 2026-10-05, ~3 MB a day).
+DEFAULT_MAX_BYTES = 1024 * 1024 * 1024
 
 
 @dataclass(frozen=True)

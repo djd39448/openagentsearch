@@ -224,7 +224,7 @@ DIDs -- exactly those last seen at or after a cutoff -- and says so: `/healthz`'
 `200` body's `provenance`, and the `404 unknown_did` body all carry `"served": {"dids": M,
 "last_seen_min_ts": T}` (epoch seconds), while `dids` stays the WHOLE ledger's count. A DID absent
 from a size-fitted ledger may simply have been last seen before `T`; the full ledger
-(`did-ledger.jsonl` on the static index, see below) holds every DID. Without `served`, the ledger
+(`did-ledger/` on the static index, see below) holds every DID. Without `served`, the ledger
 is whole and an absent DID never posted in a polled room.
 
 ```json
@@ -744,9 +744,9 @@ B2) build the reputation ledger, copying each artifact into place before deployi
 
 ```
 python -m openagentsearch.pipeline.publish --db PATH --root DIR --out DIR
-python -m openagentsearch.reputation.build --log-root LOGROOT --out did-ledger.jsonl --compact-out did-ledger-compact.json
+python -m openagentsearch.reputation.build --log-root LOGROOT --out did-ledger.jsonl --shards-out did-ledger --compact-out did-ledger-compact.json
 python -m openagentsearch.liveness.build --log-root LOGROOT --ledger did-ledger.jsonl --out liveness-v1.json --compact-out liveness-compact.json
-# copy did-ledger.jsonl to the Pages publish directory's index/ (alongside manifest.json etc.)
+# copy the did-ledger/ directory (sharded full ledger) to the Pages publish directory's index/, replacing it whole
 # copy did-ledger-compact.json to <repo>/worker/index/ (gitignored build input)
 # copy liveness-compact.json to <repo>/worker/index/ (gitignored build input, package LM3)
 wsl.exe -e bash -lc 'cd <repo>/worker && npm ci && npx wrangler deploy'

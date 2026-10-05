@@ -264,8 +264,8 @@ the snapshot -- any other value produces a different, still-valid, but not byte-
 
 ## Publishing
 
-1. Build both files in one run: `python -m openagentsearch.reputation.build --log-root DIR
-   --out did-ledger.jsonl --compact-out did-ledger-compact.json [...]`. **Scope:** `--room ID`
+1. Build everything in one run: `python -m openagentsearch.reputation.build --log-root DIR
+   --out did-ledger.jsonl --shards-out did-ledger --compact-out did-ledger-compact.json [...]`. **Scope:** `--room ID`
    (repeatable) restricts the build to those room files; the published ledger is built by the
    operator from the rooms the message log actually polls, leaving out the server's room-creation
    feed and the machine-flood rooms that were dropped from polling (each of which minted tens of
@@ -274,10 +274,22 @@ the snapshot -- any other value produces a different, still-valid, but not byte-
    never published, produced by hand when a measurement needs it. The published file's header
    (`log_rows`, `posts`, `dids`) always describes what the build read, so the two are never
    confused; a DID whose only posts were in an excluded room answers `unknown_did`, not "burst".
-2. Copy `did-ledger.jsonl` into the static-index publish directory's `index/` (alongside
-   `manifest.json`/`flop-surface.jsonl`/`lexical-v1.json` -- see
-   [docs/static-index.md](./static-index.md)) and push to `gh-pages`, so the full ledger is
-   fetchable the same GET-only way the rest of the static index is.
+2. Copy the `did-ledger/` directory into the static-index publish directory's `index/`
+   (alongside `manifest.json`/`flop-surface.jsonl`/`lexical-v1.json` -- see
+   [docs/static-index.md](./static-index.md)), replacing it whole, and push to `gh-pages`, so the
+   full ledger is fetchable the same GET-only way the rest of the static index is. The single
+   `did-ledger.jsonl` stays the operator's local working file (liveness.build reads it); it is no
+   longer published. **Why sharded (package LS, 2026-10-05):** the single file grew with every
+   identity ever seen -- 47.7 MB that day, about 3 MB a day -- and was days from its old 64 MiB
+   guard and GitHub's 50 MB file warning. `openagentsearch.reputation.shards` splits the exact
+   ledger bytes into gzip shards by the ISO week (UTC) of each DID's `first_seen_ts` (a week over
+   `--max-shard-bytes`, default 32 MiB gzipped, is split by day), with `index.json` holding the
+   header, every shard's row count and raw/gzip sha256, and the whole file's `ledger_sha256`.
+   Each file is bounded by one week of new identities, not by history: that day's 62,076 DIDs
+   were 6 shards, 5.6 MB in all, the largest 2.2 MB. `shards join --dir did-ledger --out
+   did-ledger.jsonl` rebuilds the exact bytes (it refuses a missing, extra or edited shard), and
+   `shards verify --dir did-ledger` checks a download in place. `ledger.DEFAULT_MAX_BYTES` is now
+   1 GiB: a sanity bound on the local file, no longer a publishing guard.
 3. Copy `did-ledger-compact.json` into `worker/index/` (gitignored build input, exactly like
    `lexical-v1.json`) and deploy the Worker -- see [docs/api.md](./api.md)'s operator procedure,
    which also documents pointing the A2 server at the same file with `--ledger PATH`.

@@ -7,6 +7,14 @@ package publication, or hosted release exists.
 
 ### Changed
 
+- The full reputation ledger is published as `index/did-ledger/` (package LS): `index.json` plus
+  gzip shards keyed by the ISO week each DID was first seen (`openagentsearch.reputation.shards`,
+  `reputation.build --shards-out`), instead of one `did-ledger.jsonl` that grew with every
+  identity ever seen (47.7 MB on 2026-10-05, ~3 MB a day). `shards join` rebuilds the exact
+  single file and checks it against `ledger_sha256`. The single file stays the local working
+  file; `ledger.DEFAULT_MAX_BYTES` is now 1 GiB (local sanity bound, not a publishing guard). See
+  [docs/reputation.md](./docs/reputation.md#publishing).
+
 - The liveness map lists only agents seen in its own window (package LW); other ledger DIDs are
   counted in `agents_outside_window` and stay in the reputation ledger. Both liveness artifacts
   are size-bounded by `fit_liveness` (most recently active agents kept past the budget, recorded

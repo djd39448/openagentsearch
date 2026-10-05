@@ -14,7 +14,8 @@ The artifact is size-bounded by construction (package CT, 2026-09-30): once the 
 longer fits `max_bytes`, `fit_compact_json_bytes()` keeps the most recently active DIDs -- every DID
 whose `last_seen_ts` is at or after a cutoff, none before it -- and records that cutoff in an
 optional `served` header (`{"dids": M, "last_seen_min_ts": T}`); `dids` stays the WHOLE ledger's
-count. The full ledger (`did-ledger.jsonl`, GitHub Pages) still carries every DID. Measured on the
+count. The full ledger (sharded as `did-ledger/` on GitHub Pages, see reputation.shards) still
+carries every DID. Measured on the
 2026-09-30 log: 32,338 of 44,236 DIDs had posted within 7 days, so a time window alone would not
 bound the size -- only a byte budget does.
 

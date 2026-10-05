@@ -1,13 +1,15 @@
 """CLI: `python -m openagentsearch.reputation.build --log-root DIR --out FILE [--now EPOCH]
 [--room ID ...] [--notes PATH] [--burst-window 60] [--burst-min-new 50] [--compact-out FILE]
-[--max-ledger-bytes N] [--max-compact-bytes N]`
+[--shards-out DIR] [--max-shard-bytes N] [--max-ledger-bytes N] [--max-compact-bytes N]`
 
 Builds a `Ledger` from `--log-root`'s message log (`openagentsearch.sources.technocore_messages`
 on-disk layout) and writes it to `--out` (`ledger.to_jsonl_bytes`, atomic). When `--compact-out`
 is given, the SAME `Ledger` from this same run is also written as the compact Worker artifact
-(`openagentsearch.reputation.compact.write_compact_ledger`) -- one build, two files, never two
-separate reads of the log. On success, prints one compact JSON report line to stdout and returns
-0 (the report gains a `compact_bytes` key only when `--compact-out` was given, and a
+(`openagentsearch.reputation.compact.write_compact_ledger`), and when `--shards-out` is given,
+as the published sharded directory (`openagentsearch.reputation.shards.write_shards`) -- one
+build, up to three outputs, never two separate reads of the log. On success, prints one compact JSON report line to stdout and returns
+0 (the report gains a `shards` key only when `--shards-out` was given, a `compact_bytes` key
+only when `--compact-out` was given, and a
 `compact_served` key only when the compact artifact had to be fitted to `--max-compact-bytes`). On any failure,
 prints one JSON `{"error": "..."}` line to stderr and returns 1; nothing is printed to stdout in
 that case.
@@ -43,7 +45,8 @@ from pathlib import Path
 from openagentsearch.reputation.compact import DEFAULT_MAX_BYTES as COMPACT_DEFAULT_MAX_BYTES
 from openagentsearch.reputation.compact import write_compact_ledger_served
 from openagentsearch.reputation.ledger import DEFAULT_MAX_BYTES as LEDGER_DEFAULT_MAX_BYTES
-from openagentsearch.reputation.ledger import build_ledger, write_ledger
+from openagentsearch.reputation.ledger import build_ledger, to_jsonl_bytes, write_ledger
+from openagentsearch.reputation.shards import DEFAULT_MAX_SHARD_BYTES, summary, write_shards
 
 
 def _positive_int(value: str) -> int:
@@ -74,6 +77,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--compact-out", default=None, dest="compact_out",
         help="optional: also write the compact Worker artifact (did-ledger-compact.json) here",
+    )
+    parser.add_argument(
+        "--shards-out", default=None, dest="shards_out",
+        help="optional: also write the published, sharded did-ledger/ directory here "
+             "(openagentsearch.reputation.shards; package LS)",
+    )
+    parser.add_argument(
+        "--max-shard-bytes", type=_positive_int, default=DEFAULT_MAX_SHARD_BYTES,
+        dest="max_shard_bytes", help="per-shard gzip limit for --shards-out (default: %(default)s)",
     )
     parser.add_argument(
         "--max-ledger-bytes", type=_positive_int, default=LEDGER_DEFAULT_MAX_BYTES,
@@ -120,6 +132,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         written_bytes = write_ledger(ledger, out_path, max_bytes=args.max_ledger_bytes)
         compact_bytes: int | None = None
+        shards_report: dict[str, object] | None = None
+        if args.shards_out is not None:
+            shards_report = summary(write_shards(
+                to_jsonl_bytes(ledger), Path(args.shards_out), max_shard_bytes=args.max_shard_bytes))
         compact_served: dict[str, object] | None = None
         if args.compact_out is not None:
             compact_bytes, served = write_compact_ledger_served(
@@ -147,6 +163,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "notes_used": report.notes_used,
         "seconds": report.seconds,
     }
+    if shards_report is not None:
+        result["shards"] = shards_report
     if compact_bytes is not None:
         result["compact_bytes"] = compact_bytes
         if compact_served is not None:

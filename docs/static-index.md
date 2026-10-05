@@ -12,12 +12,16 @@ manifest into three plain, GET-only files under `out/index/`:
   embeddings. Unlike the two files above, this one can be legitimately absent even from an
   otherwise-successful publish -- see [`lexical-v1.json`](#lexical-v1json) below.
 
-A fourth file, `did-ledger.jsonl` (package B2, `openagentsearch.reputation.ledger`'s
-`write_ledger`, schema `openagentsearch.did-ledger/1`), is published the same GET-only way but is
-NOT built by `build_static_index()` -- it comes from a separate CLI,
-`python -m openagentsearch.reputation.build --log-root DIR --out did-ledger.jsonl
-[--compact-out did-ledger-compact.json]`, over a message log rather than a `VectorStore`'s index
-manifest, and is copied into the same publish directory's `index/` by the operator. See
+The full reputation ledger (package B2, schema `openagentsearch.did-ledger/1`) is published the
+same GET-only way as a directory, `index/did-ledger/` (package LS, 2026-10-05): `index.json` plus
+gzip shards keyed by the week each DID was first seen, which `python -m
+openagentsearch.reputation.shards join --dir did-ledger --out did-ledger.jsonl` turns back into
+the exact single file (checked against `index.json`'s `ledger_sha256`). Until 2026-10-05 it was
+one `did-ledger.jsonl`, which grew with every identity ever seen. It is NOT built by
+`build_static_index()` -- it comes from `python -m openagentsearch.reputation.build --log-root DIR
+--out did-ledger.jsonl --shards-out did-ledger [--compact-out did-ledger-compact.json]`, over a
+message log rather than a `VectorStore`'s index manifest, and the operator copies the
+`did-ledger/` directory into the same publish directory's `index/`. See
 [docs/reputation.md](./reputation.md) for its schema and [docs/api.md](./api.md) for the served
 `GET /did/{did}` route the smaller `did-ledger-compact.json` (a Worker/server build input, never
 published to Pages) backs.

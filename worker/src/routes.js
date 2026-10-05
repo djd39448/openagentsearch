@@ -522,7 +522,7 @@ export function lookupDid(ledger, did) {
     };
   }
   // A size-fitted ledger (package CT) says which DIDs it holds, so a miss is not read as "never
-  // posted": the full ledger (did-ledger.jsonl on GitHub Pages) still has every DID.
+  // posted": the full ledger (did-ledger/ on GitHub Pages, sharded) still has every DID.
   if (ledger.served != null) {
     return { status: 404, body: { error: "unknown_did", served: servedScope(ledger) } };
   }
